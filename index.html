@@ -66,7 +66,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.12 12:38</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.12 21:16</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -90,6 +90,13 @@
       <input id="file" type="file" accept=".xls,.xlsx" multiple class="hidden">
     </div>
     <div id="fileMsg" class="msg"></div>
+    <div id="perfModeBox" class="row hidden" style="margin-top:10px">
+      <span>業績報表更新到：</span>
+      <label><input type="radio" name="perfMode" value="auto" checked> 自動判斷</label>
+      <label><input type="radio" name="perfMode" value="updated"> 已含昨天（11 點後的版本）</label>
+      <label><input type="radio" name="perfMode" value="old"> 只到前天（11 點前的版本）</label>
+      <span id="perfModeWhy" class="note"></span>
+    </div>
   </section>
 
   <section id="out" class="card hidden">
@@ -309,7 +316,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     { key: 'audit', label: '壽險促成審核作業', re: /^壽險促成審核作業_(\d{8})/ },
     { key: 'kpi', label: 'KPI活動績效統計表', re: /^[(（]效能[)）]KPI活動績效統計表_(\d{8})/ },
     // 保險業績(舉績、預估核實)報表115.11.xlsx：檔名只有民國年.月，date 給 '11511'
-    { key: 'perf', label: '保險業績報表', re: /^保險業績.*報表(\d{3}\.\d{1,2})/ },
+    { key: 'perf', label: '保險業績報表', re: /^保險業績.*報表(\d{3}\.\d{1,2})?/ },
   ];
   function identifyFile(name) {
     for (const t of FILE_TYPES) { const m = name.match(t.re); if (m) return { type: t.key, label: t.label, date: m[1] }; }
@@ -634,8 +641,9 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       const row = rows[r], name = String(row[cName] || '').trim();
       if (String(row[cMgr] || '').trim() !== manager || !name) continue;
       const counts = {};
-      dateCols.forEach(({ j, ymd: d }) => { counts[d] = Number(row[j]) || 0; });
-      people.push({ name, level: n(row[cLevel]), counts,
+      const dayP = {};
+      dateCols.forEach(({ j, ymd: d }) => { counts[d] = Number(row[j]) || 0; dayP[d] = Number(row[j + 1]) || 0; });
+      people.push({ name, level: n(row[cLevel]), counts, dayP,
         jjN: n(row[cJj]), jjP: n(row[cJj + 1]), hsN: n(row[cHs]), hsP: n(row[cHs + 1]),
         cxN: n(row[cCx]), cxP: n(row[cCx + 1]), netN: n(row[cNet]), netP: n(row[cNet + 1]) });
     }
@@ -656,11 +664,20 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     return { sheetName: sn, dates: dateCols.map(d => d.ymd), people, sendCases: cases(snSend), hsCases: cases(snHs) };
   }
 
+  // ---------- 業績報表有沒有更新到「昨天」（審核作業那天） ----------
+  // 業績報表大約早上 11 點更新；mode：'auto' 自動判斷（報表裡有沒有這天的欄）、'updated' 已含昨天、'old' 只到前天
+  function perfUpdated(perf, D, mode) {
+    if (mode === 'updated') return true;
+    if (mode === 'old') return false;
+    return perf.dates.includes(D) && perf.people.some(p => (p.counts[D] || 0) > 0 || (p.dayP && p.dayP[D] > 0));
+  }
+
   // ---------- 聽 CALL 人員：連續三天沒有舉績 ----------
   // 最後一天＝審核作業的檔名日期（早上 09:30 前業績報表還沒更新到這天），用審核作業的件數；
   // 前兩天＝業績報表裡、這天以前最近的兩個有資料的日期。
   function listenCall(perf, audit, opt) {
     const D = +audit.fileDate, warn = [];
+    const updated = perfUpdated(perf, D, opt.perfMode);
     const before = perf.dates.filter(d => d < D).sort((a, b) => a - b);
     const days = before.slice(-2);
     if (days.length < 2) warn.push('業績報表裡，審核作業日期以前的資料不到兩天');
@@ -669,10 +686,11 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       let p = new Date(parseYmd(String(D))); do { p.setDate(p.getDate() - 1); } while (!isWorkday(p, opt.cal));
       if (before[before.length - 1] !== ymd(p)) warn.push(`業績報表最後一天是 ${rocDot(parseYmd(String(before[before.length - 1])))}，但審核作業前一個上班日是 ${rocDot(p)}，中間的日子沒有資料，請確認報表是不是最新的`);
     }
-    if (perf.dates.includes(D)) warn.push(`業績報表已經有 ${rocDot(parseYmd(String(D)))} 的資料，這天仍以審核作業為準`);
+    if (updated && !perf.dates.includes(D)) warn.push(`你選了「業績報表已更新到 ${rocDot(parseYmd(String(D)))}」，但報表裡找不到這天，這天先用審核作業`);
     const auditCnt = {};
     audit.cases.forEach(c => { auditCnt[c.服務人員] = (auditCnt[c.服務人員] || 0) + 1; });
-    const cols = [...days.map(d => ({ ymd: d, src: '業績報表' })), { ymd: D, src: '審核作業' }];
+    const lastSrc = updated && perf.dates.includes(D) ? '業績報表' : '審核作業';
+    const cols = [...days.map(d => ({ ymd: d, src: '業績報表' })), { ymd: D, src: lastSrc }];
     const rows = perf.people.map(p => {
       const counts = cols.map(c => (c.src === '審核作業' ? auditCnt[p.name] || 0 : p.counts[c.ymd] || 0));
       const excluded = !!(opt.excluded && opt.excluded.includes(p.name));
@@ -681,7 +699,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const short = n => (n.length >= 3 ? n.slice(1) : n); // 例：王小明 → 小明
     const hits = rows.filter(r => r.hit).map(r => short(r.name));
     const text = `聽CALL人員:${hits.length ? hits.join('、') : '無'}(主旨:聽CALL內容)`;
-    return { cols, rows, hits, text, warn };
+    return { cols, rows, hits, text, warn, updated: lastSrc === '業績報表' };
   }
 
   // ---------- 工作月（直效行銷部 115 年業績受理進度表，IMG_6495） ----------
@@ -737,7 +755,9 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   function morningReport(perf, audit, opt) {
     const cal = opt.cal, hsRate = opt.hsRate ?? 0.7, cxRate = opt.cxRate ?? 0.25, warn = [];
     const lastPerf = Math.max(...perf.dates);
-    const D = audit ? +audit.fileDate : lastPerf;            // 資料算到哪一天（昨天）
+    const D = audit ? +audit.fileDate : lastPerf;
+    const updated = !audit || perfUpdated(perf, D, opt.perfMode);
+    const perfHasD = perf.dates.includes(D);            // 資料算到哪一天（昨天）
     const today = ymd(nextWorkday(parseYmd(String(D)), cal)); // 早上報表給的那一天
     const m = workMonthOf(D);
     if (!m) throw new Error(`${rocDot(parseYmd(String(D)))} 不在 115 年的工作月表裡`);
@@ -746,9 +766,10 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const total = m.days, passed = Math.min(total, all.filter(d => d <= D).length);
     const todayN = today <= m.end ? all.filter(d => d <= today).length : null;
     const remain = Math.max(0, total - passed), ratio = passed / total;
-    const addAudit = audit && !perf.dates.includes(D);
-    if (audit && perf.dates.includes(D)) warn.push(`業績報表已經有 ${rocDot(parseYmd(String(D)))} 的資料，這天不再另外加審核作業`);
-    if (audit) {
+    // 沒更新：舉績＝報表累計（扣掉報表裡這天的數字，避免重複）＋審核作業這天的件
+    const addAudit = !!audit && !(updated && perfHasD);
+    if (audit && updated && !perfHasD) warn.push(`你選了「業績報表已更新到 ${rocDot(parseYmd(String(D)))}」，但報表裡找不到這天，這天先用審核作業`);
+    if (audit && !updated) {
       let p = parseYmd(String(D)); do { p.setDate(p.getDate() - 1); } while (!isWorkday(p, cal));
       if (lastPerf < ymd(p)) warn.push(`業績報表只到 ${rocDot(parseYmd(String(lastPerf)))}，${rocDot(p)} 的舉績沒有算進來，請放最新的業績報表`);
     }
@@ -767,24 +788,25 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       const target = level / factor;
       const excluded = !!(opt.excluded && opt.excluded.includes(p.name));
       const hsList = (perf.hsCases || []).filter(c => c.who === p.name);
-      const pending = hasSend ? sendMonth.filter(c => c.who === p.name && !hsIds.has(c.id)) : null;
+      const pending = hasSend ? sendMonth.filter(c => c.who === p.name && !hsIds.has(c.id) && c.date !== String(D)) : null; // 昨天剛進的件另外說明
       const y = yday[p.name] || { n: 0, p: 0 };
-      const jj = p.jjP + (addAudit ? y.p : 0), net = p.netP;
+      const dayDP = perfHasD && p.dayP ? p.dayP[D] || 0 : 0, dayDN = perfHasD ? p.counts[D] || 0 : 0;
+      const jj = addAudit ? p.jjP - dayDP + y.p : p.jjP, net = p.netP;
       const jjNeed = target * ratio, netNeed = level * ratio;
       const proj = passed ? jj / passed * total : 0;
       const jjOk = jj >= jjNeed - 1e-9, netOk = net >= netNeed - 1e-9;
       const light = !jjOk ? 'red' : !netOk ? 'yellow' : 'green';
       return {
         name: p.name, level, levelOrig: p.level, levelEdited: level !== p.level, target: r1(target), jj: r1(jj), jjNeed: r1(jjNeed), net: r1(net), netNeed: r1(netNeed),
-        hs: r1(p.hsP), cx: r1(p.cxP), jjN: p.jjN + (addAudit ? y.n : 0), yN: y.n, yP: r1(y.p),
+        hs: r1(p.hsP), cx: r1(p.cxP), jjN: addAudit ? p.jjN - dayDN + y.n : p.jjN, yN: y.n, yP: r1(y.p),
         jjRate: target ? jj / target : 0, netRate: level ? net / level : 0,
         gap: r1(Math.max(0, target - jj)), perDay: remain ? r1(Math.max(0, target - jj) / remain) : null,
         proj: r1(proj), projShort: proj < target - 1e-9, jjOk, netOk, light,
         jjReach: jj >= target - 1e-9, netReach: net >= level - 1e-9,
-        excluded, hsN: p.hsN, hsList, pending, pendingN: Math.max(0, p.jjN - p.hsN),
+        excluded, hsN: p.hsN, hsList, pending, jjNBefore: p.jjN - dayDN, pendingN: Math.max(0, p.jjN - dayDN - p.hsN),
       };
     });
-    return { month: m, D, today, todayN, total, passed, remain, ratio, factor, rows, warn, quote: quoteOf(today), addAudit, hasSend };
+    return { month: m, D, today, todayN, total, passed, remain, ratio, factor, rows, warn, quote: quoteOf(today), addAudit, hasSend, updated: !addAudit };
   }
 
   // ---------- 寫 C：進件 EMAIL ----------
@@ -900,7 +922,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     notes = [];
     for (const f of files) {
       const id = Core.identifyFile(f.name);
-      if (!id) { notes.push(`<div class="warn">⚠ 不認得「${esc(f.name)}」，已略過（檔名開頭要是「壽險促成審核作業_日期」、「(效能)KPI活動績效統計表_日期」或「保險業績(舉績、預估核實)報表」）</div>`); continue; }
+      if (!id) { notes.push(`<div class="warn">⚠ 不認得「${esc(f.name)}」，已略過（檔名開頭要是「壽險促成審核作業_日期」、「(效能)KPI活動績效統計表_日期」或「保險業績…報表」）</div>`); continue; }
       try {
         // 同類檔案再放一次就取代舊的
         if (id.type === 'audit') audit = { ...Core.parseAudit(await f.arrayBuffer()), fileDate: id.date, fileName: f.name };
@@ -926,6 +948,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       : '');
     $('fileMsg').innerHTML = list + notes.join('');
     if (perf) $('rmPerf').addEventListener('click', () => { perf = null; notes = []; render(); });
+    renderPerfMode();
     renderCall();
     renderAm();
     if (kpi) { $('rmKpi').addEventListener('click', () => { kpi = null; notes = []; render(); }); showKpi(); }
@@ -979,6 +1002,20 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     renderEmail();
   }
 
+  // 業績報表更新到哪一天：11 點前的版本只到前天，11 點後的版本已含昨天；預設自動判斷，可以自己選
+  const perfMode = () => (document.querySelector('input[name=perfMode]:checked') || {}).value || 'auto';
+  function renderPerfMode() {
+    const show = !!(perf && audit);
+    $('perfModeBox').classList.toggle('hidden', !show);
+    if (!show) return;
+    const D = +audit.fileDate, has = perf.dates.includes(D), dd = Core.rocDot(Core.parseYmd(String(D)));
+    const auto = has && perf.people.some(p => (p.counts[D] || 0) > 0 || (p.dayP && p.dayP[D] > 0));
+    const use = perfMode() === 'auto' ? auto : perfMode() === 'updated';
+    $('perfModeWhy').textContent = `（昨天＝審核作業的 ${dd}；` + (perfMode() === 'auto' ? `自動判斷：報表${auto ? '已經有' : '還沒有'}這天的業績；` : '') +
+      `${dd} 的舉績用「${use && has ? '業績報表' : '審核作業'}」）`;
+  }
+  document.querySelectorAll('input[name=perfMode]').forEach(el => el.addEventListener('change', () => { renderPerfMode(); renderCall(); renderAm(); }));
+
   // ⑦ 早上報表：業績報表（累計到前一天）＋審核作業（昨天剛進的件，只算舉績）
   const rateGet = (k, d) => { const v = Number(store.get(k, d)); return isFinite(v) && v > 0 ? v : Number(d); };
   $('hsRate').value = rateGet('hsRate', 70); $('cxRate').value = rateGet('cxRate', 25);
@@ -991,7 +1028,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   const fmtP = v => (v == null ? '—' : (Math.round(v * 10) / 10).toFixed(1));
   const pct = v => Math.round(v * 100) + '%';
   function amData() {
-    return Core.morningReport(perf, audit, { cal: CAL, excluded: amExcl, levels: amLevels, hsRate: Number($('hsRate').value) / 100, cxRate: Number($('cxRate').value) / 100 });
+    return Core.morningReport(perf, audit, { cal: CAL, excluded: amExcl, levels: amLevels, hsRate: Number($('hsRate').value) / 100, cxRate: Number($('cxRate').value) / 100, perfMode: perfMode() });
   }
   // 給組員看的部分（畫面和複製共用）：金句、天數、職達人數、昨日戰報、進度表
   function amGroupHtml(r, forMail) {
@@ -1100,7 +1137,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const c = v => `${esc(v.id)}（${fmtD(v.date)}，${fmtP(v.p)}P）`;
     const yNote = x.yN ? `；另有昨天剛進 ${x.yN} 件（還不會核實）` : '';
     if (x.pending) return `<div class="note">還沒核實 ${x.pending.length} 件：${x.pending.length ? x.pending.map(c).join('、') : '無'}${yNote}</div>`;
-    return `<div class="note">業績報表的舉績 ${x.jjN - (r.addAudit ? x.yN : 0)} 件、已核實 ${x.hsN} 件 → 約 <b>${x.pendingN}</b> 件還沒核實${yNote}。` +
+    return `<div class="note">業績報表的舉績 ${x.jjNBefore} 件（不含昨天）、已核實 ${x.hsN} 件 → 約 <b>${x.pendingN}</b> 件還沒核實${yNote}。` +
       `已核實的是：${x.hsList.length ? x.hsList.map(c).join('、') : '（還沒有）'}；其他的就是沒核實的（業績報表的「送件明細」是空的，所以列不出受理編號）</div>`;
   }
   $('clrLv').addEventListener('click', () => { amLevels = {}; store.set('amLevels', '{}'); renderAm(); });
@@ -1124,7 +1161,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     $('callNeed').textContent = miss.length ? `還要放入：${miss.join('、')}（前兩天看業績報表，最後一天看審核作業）` : '前兩天看業績報表，最後一天看審核作業（早上 09:30 前業績報表還沒更新到昨天）';
     $('callBody').classList.toggle('hidden', !!miss.length);
     if (miss.length) return;
-    const r = Core.listenCall(perf, audit, { cal: CAL, excluded: callExcl });
+    const r = Core.listenCall(perf, audit, { cal: CAL, excluded: callExcl, perfMode: perfMode() });
     $('cpCallMsg').textContent = '';
     $('callText').innerHTML = `<span style="background:${CALL_BG};padding:2px 4px">${esc(r.text)}</span>`;
     $('callWarn').innerHTML = r.warn.map(w => `<div class="warn">⚠ ${esc(w)}</div>`).join('');
