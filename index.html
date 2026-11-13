@@ -66,7 +66,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.12 21:16</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.13 09:13</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -330,16 +330,31 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   const num = s => { const n = Number(String(s).replace(/,/g, '')); return s === '' || isNaN(n) ? (s === '' ? null : s) : n; };
   function parseAudit(arrayBuffer) {
     const wb = XLSX.read(arrayBuffer, { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
-    const head = rows[0].map(h => String(h).trim());
+    // 標題列不一定在第 1 列、也不一定在第 1 張工作表：每張表前 30 列裡找有「受理編號」的那一列。
+    // 欄名去掉所有空白（含換行、全形空白）再比對。
+    const norm = h => String(h).replace(/[\s　]/g, '');
+    let rows = null, hr = -1, sheetName = wb.SheetNames[0], firstSeen = null;
+    for (const sn of wb.SheetNames) {
+      const rs = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: '' });
+      for (let i = 0; i < Math.min(rs.length, 30); i++) {
+        const cells = rs[i].map(norm);
+        if (!firstSeen && cells.some(c => c)) firstSeen = cells.filter(c => c).slice(0, 6).join('、');
+        if (cells.includes('受理編號')) { rows = rs; hr = i; sheetName = sn; break; }
+      }
+      if (rows) break;
+    }
+    if (!rows) {
+      if (!firstSeen) throw new Error('檔案裡沒有任何資料（可能這天還沒有案件），請確認是否下載到空白檔');
+      throw new Error(`找不到欄位「受理編號」。檔案最上面看到的是：「${firstSeen}」。請確認檔案是否為壽險促成審核作業`);
+    }
+    const head = rows[hr].map(norm);
     const idx = {};
     for (const k of Object.keys(NEED)) {
       idx[k] = head.indexOf(k);
       if (idx[k] < 0 && NEED[k]) throw new Error(`找不到欄位「${k}」，請確認檔案是否為壽險促成審核作業`);
     }
     const out = [];
-    for (let r = 1; r < rows.length; r++) {
+    for (let r = hr + 1; r < rows.length; r++) {
       const row = rows[r];
       if (!row.some(v => String(v).trim() !== '')) continue;
       const get = k => (idx[k] >= 0 ? String(row[idx[k]]).trim() : '');
@@ -357,7 +372,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
         保額: num(get('保額')), 投保年齡: num(get('投保年齡')), 主約保費: num(get('主約保費')), 業績FYP: num(get('業績FYP')),
       });
     }
-    return { sheetName: wb.SheetNames[0], cases: out };
+    return { sheetName, cases: out };
   }
 
   // ---------- 寫 C：新契約送件紀錄表 ----------
