@@ -66,7 +66,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.13 09:13</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.13 09:35</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -328,8 +328,37 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   const NEED = { 受理編號: 1, 送件方式: 1, 客戶姓名: 1, 行銷員姓名: 1, 主約保費: 1, 卡號末四碼: 1, 案件狀況: 0, 促成日期: 0,
     專案名稱: 0, 產品名稱: 0, 保額: 0, 投保年齡: 0, 業績FYP: 0 };
   const num = s => { const n = Number(String(s).replace(/,/g, '')); return s === '' || isNaN(n) ? (s === '' ? null : s) : n; };
+  // 公司系統匯出的 .xls 有時其實是「網頁」（HTML 表格改副檔名），開頭還有寫壞的 <style>…</script>，
+  // 直接交給 SheetJS 會把開頭那段當成儲存格。遇到網頁格式就只取出 <table>…</table> 再讀，
+  // 並且用 raw（不自動轉數字／日期），避免受理編號、時間被改掉。
+  function readBook(arrayBuffer) {
+    const u8 = new Uint8Array(arrayBuffer);
+    let i = 0;
+    if (u8[0] === 0xEF && u8[1] === 0xBB && u8[2] === 0xBF) i = 3;
+    while (i < u8.length && i < 4096 && (u8[i] === 0x20 || u8[i] === 0x09 || u8[i] === 0x0A || u8[i] === 0x0D)) i++;
+    if (u8[i] !== 0x3C) return XLSX.read(arrayBuffer, { type: 'array' }); // 不是 '<' 開頭 → 真的 Excel 檔
+    let text = new TextDecoder('utf-8').decode(u8);
+    const cs = (text.slice(0, 2000).match(/charset\s*=\s*['"]?([\w-]+)/i) || [])[1] || '';
+    if (/big5|950/i.test(cs) || (!/utf-?8/i.test(cs) && (text.match(/�/g) || []).length > 5)) {
+      try { text = new TextDecoder('big5').decode(u8); } catch (e) { /* 沒有 big5 解碼器就用 utf-8 */ }
+    }
+    const a = text.search(/<table[\s>]/i), b = text.toLowerCase().lastIndexOf('</table>');
+    if (a < 0 || b < a) throw new Error('這個 .xls 是網頁格式，但裡面找不到表格');
+    return XLSX.read('<html><body>' + text.slice(a, b + 8) + '</body></html>', { type: 'string', raw: true });
+  }
+  // 時間：Excel 數字（一天的幾分之幾）或文字「時:分:秒」都轉成秒數
+  function toSec(v) {
+    if (v === '' || v == null) return null;
+    if (typeof v === 'number') return Math.round(v * 86400);
+    if (v instanceof Date) return v.getHours() * 3600 + v.getMinutes() * 60 + v.getSeconds();
+    const s = String(v).trim(), m = s.match(/(\d+):(\d{1,2})(?::(\d{1,2}))?/);
+    if (m) return +m[1] * 3600 + +m[2] * 60 + +(m[3] || 0);
+    const n = Number(s.replace(/,/g, ''));
+    return isNaN(n) ? null : Math.round(n * 86400);
+  }
+
   function parseAudit(arrayBuffer) {
-    const wb = XLSX.read(arrayBuffer, { type: 'array' });
+    const wb = readBook(arrayBuffer);
     // 標題列不一定在第 1 列、也不一定在第 1 張工作表：每張表前 30 列裡找有「受理編號」的那一列。
     // 欄名去掉所有空白（含換行、全形空白）再比對。
     const norm = h => String(h).replace(/[\s　]/g, '');
@@ -447,12 +476,13 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   };
   const TIME_KEYS = ['am', 'pm', 'total', 'first', 'last', 'newT', 'folT'];
   function parseKpi(arrayBuffer) {
-    const wb = XLSX.read(arrayBuffer, { type: 'array' });
+    const wb = readBook(arrayBuffer);
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
-    const hr = rows.findIndex(r => r.some(v => String(v).trim() === '行銷員'));
+    const hr = rows.findIndex(r => r.some(v => String(v).replace(/\s/g, '') === '行銷員'));
     if (hr < 0) throw new Error('找不到「行銷員」表頭，請確認檔案是否為 KPI活動績效統計表');
-    const head = rows[hr].map((h, c) => (String(h) + String(rows[hr + 1][c] || '')).replace(/\s/g, ''));
+    const head = rows[hr].map((h, c) => (String(h) + String(rows[hr + 1][c] || '')).replace(/\s/g, '')
+      .replace(/&gt;|＞/g, '>').replace(/&lt;|＜/g, '<').replace(/＝/g, '=').replace(/&amp;/g, '&').replace(/（/g, '(').replace(/）/g, ')'));
     const idx = {};
     for (const [k, h] of Object.entries(KPI_COLS)) {
       idx[k] = head.indexOf(h.replace(/\s/g, ''));
@@ -463,12 +493,13 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const out = [];
     for (let r = hr + 2; r < rows.length; r++) {
       const row = rows[r], name = String(row[idx.name] || '').trim();
-      if (!name || typeof row[0] !== 'number') continue; // 小計、平均、總計列的 A 欄是文字
+      // A 欄是統計日期（Excel 數字或「11/5/26」這種文字）；小計、平均、總計列的 A 欄是文字
+      if (!name || !(typeof row[0] === 'number' || row[0] instanceof Date || /^\d/.test(String(row[0]).trim()))) continue;
       const p = { name };
       for (const k of Object.keys(KPI_COLS)) {
         if (k === 'name' || idx[k] < 0) continue;
         const v = row[idx[k]];
-        p[k] = v === '' || v == null ? null : TIME_KEYS.includes(k) ? Math.round(Number(v) * 86400) : Number(v);
+        p[k] = v === '' || v == null ? null : TIME_KEYS.includes(k) ? toSec(v) : Number(String(v).replace(/,/g, ''));
       }
       out.push(p);
     }
