@@ -66,7 +66,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.13 09:35</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.13 20:18</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -328,7 +328,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   const NEED = { 受理編號: 1, 送件方式: 1, 客戶姓名: 1, 行銷員姓名: 1, 主約保費: 1, 卡號末四碼: 1, 案件狀況: 0, 促成日期: 0,
     專案名稱: 0, 產品名稱: 0, 保額: 0, 投保年齡: 0, 業績FYP: 0 };
   const num = s => { const n = Number(String(s).replace(/,/g, '')); return s === '' || isNaN(n) ? (s === '' ? null : s) : n; };
-  // 公司系統匯出的 .xls 有時其實是「網頁」（HTML 表格改副檔名），開頭還有寫壞的 <style>…</script>，
+  // 公司系統匯出的 .xls 有時其實是「網頁」（HTML 表格改副檔名），開頭還有寫壞的 <style>…（style 沒正確結束），
   // 直接交給 SheetJS 會把開頭那段當成儲存格。遇到網頁格式就只取出 <table>…</table> 再讀，
   // 並且用 raw（不自動轉數字／日期），避免受理編號、時間被改掉。
   function readBook(arrayBuffer) {
