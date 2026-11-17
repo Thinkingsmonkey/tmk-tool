@@ -66,7 +66,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.13 20:18</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.17 13:05</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -331,20 +331,56 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   // 公司系統匯出的 .xls 有時其實是「網頁」（HTML 表格改副檔名），開頭還有寫壞的 <style>…（style 沒正確結束），
   // 直接交給 SheetJS 會把開頭那段當成儲存格。遇到網頁格式就只取出 <table>…</table> 再讀，
   // 並且用 raw（不自動轉數字／日期），避免受理編號、時間被改掉。
-  function readBook(arrayBuffer) {
-    const u8 = new Uint8Array(arrayBuffer);
+  // 公司的 .xls 可能是三種東西：真的 Excel、網頁（HTML 表格）、Excel 2003 XML（也有 <Table>，不能當網頁讀）。
+  // 不先猜死：列出所有可能的讀法（每種讀法得到幾張工作表），由各個 parse 函式找有表頭的那一張。
+  function readCandidates(arrayBuffer) {
+    const u8 = new Uint8Array(arrayBuffer), out = [];
+    const add = (kind, f) => { try { const wb = f(); for (const sn of wb.SheetNames) out.push({ kind, ws: wb.Sheets[sn] }); } catch (e) { /* 這種讀法不行就換下一種 */ } };
+    const asExcel = () => XLSX.read(arrayBuffer, { type: 'array' });
     let i = 0;
     if (u8[0] === 0xEF && u8[1] === 0xBB && u8[2] === 0xBF) i = 3;
     while (i < u8.length && i < 4096 && (u8[i] === 0x20 || u8[i] === 0x09 || u8[i] === 0x0A || u8[i] === 0x0D)) i++;
-    if (u8[i] !== 0x3C) return XLSX.read(arrayBuffer, { type: 'array' }); // 不是 '<' 開頭 → 真的 Excel 檔
+    if (u8[i] !== 0x3C) { add('Excel', asExcel); return out; } // 不是 '<' 開頭 → 真的 Excel 檔
     let text = new TextDecoder('utf-8').decode(u8);
     const cs = (text.slice(0, 2000).match(/charset\s*=\s*['"]?([\w-]+)/i) || [])[1] || '';
     if (/big5|950/i.test(cs) || (!/utf-?8/i.test(cs) && (text.match(/�/g) || []).length > 5)) {
       try { text = new TextDecoder('big5').decode(u8); } catch (e) { /* 沒有 big5 解碼器就用 utf-8 */ }
     }
-    const a = text.search(/<table[\s>]/i), b = text.toLowerCase().lastIndexOf('</table>');
-    if (a < 0 || b < a) throw new Error('這個 .xls 是網頁格式，但裡面找不到表格');
-    return XLSX.read('<html><body>' + text.slice(a, b + 8) + '</body></html>', { type: 'string', raw: true });
+    if (/urn:schemas-microsoft-com:office:spreadsheet|<Workbook[\s>]/.test(text.slice(0, 5000))) add('Excel 2003 XML', asExcel);
+    const tables = text.match(/<table[\s>][\s\S]*?<\/table>/gi) || [];
+    if (tables.length) {
+      // 每個 <table> 分開讀再上下接起來（表頭和資料可能在不同表格）
+      add('網頁', () => {
+        const aoa = [];
+        for (const t of tables) {
+          const w = XLSX.read('<html><body>' + t + '</body></html>', { type: 'string', raw: true });
+          aoa.push(...XLSX.utils.sheet_to_json(w.Sheets[w.SheetNames[0]], { header: 1, raw: true, defval: '' }));
+        }
+        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 's'); return wb;
+      });
+      // 整段一起讀（表格裡又包表格時用）
+      const a = text.search(/<table[\s>]/i), b = text.toLowerCase().lastIndexOf('</table>');
+      add('網頁', () => XLSX.read('<html><body>' + text.slice(a, b + 8) + '</body></html>', { type: 'string', raw: true }));
+    }
+    add('其他', asExcel);
+    return out;
+  }
+  // 在所有讀法、所有工作表的前 30 列找表頭；isHead(去空白後的那一列) 回傳 true 就是表頭列。
+  // 找不到時錯誤訊息寫出檔案格式和最上面看到的字，方便判斷。
+  const normCell = h => String(h).replace(/[\s　]/g, '');
+  function findHeader(arrayBuffer, isHead, raw, what) {
+    const cands = readCandidates(arrayBuffer);
+    let firstSeen = null, kind = cands.length ? cands[0].kind : '讀不出來';
+    for (const c of cands) {
+      const rows = XLSX.utils.sheet_to_json(c.ws, { header: 1, raw, defval: '' });
+      for (let i = 0; i < Math.min(rows.length, 30); i++) {
+        const cells = rows[i].map(normCell);
+        if (!firstSeen && cells.some(v => v)) { firstSeen = cells.filter(v => v).slice(0, 6).join('、').slice(0, 80); kind = c.kind; }
+        if (isHead(cells)) return { rows, hr: i };
+      }
+    }
+    if (!firstSeen) throw new Error(`檔案裡沒有任何資料（格式：${kind}），請確認是否下載到空白檔`);
+    throw new Error(`找不到${what}。檔案格式：${kind}；最上面看到的是：「${firstSeen}」`);
   }
   // 時間：Excel 數字（一天的幾分之幾）或文字「時:分:秒」都轉成秒數
   function toSec(v) {
@@ -358,25 +394,9 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   }
 
   function parseAudit(arrayBuffer) {
-    const wb = readBook(arrayBuffer);
-    // 標題列不一定在第 1 列、也不一定在第 1 張工作表：每張表前 30 列裡找有「受理編號」的那一列。
-    // 欄名去掉所有空白（含換行、全形空白）再比對。
-    const norm = h => String(h).replace(/[\s　]/g, '');
-    let rows = null, hr = -1, sheetName = wb.SheetNames[0], firstSeen = null;
-    for (const sn of wb.SheetNames) {
-      const rs = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: '' });
-      for (let i = 0; i < Math.min(rs.length, 30); i++) {
-        const cells = rs[i].map(norm);
-        if (!firstSeen && cells.some(c => c)) firstSeen = cells.filter(c => c).slice(0, 6).join('、');
-        if (cells.includes('受理編號')) { rows = rs; hr = i; sheetName = sn; break; }
-      }
-      if (rows) break;
-    }
-    if (!rows) {
-      if (!firstSeen) throw new Error('檔案裡沒有任何資料（可能這天還沒有案件），請確認是否下載到空白檔');
-      throw new Error(`找不到欄位「受理編號」。檔案最上面看到的是：「${firstSeen}」。請確認檔案是否為壽險促成審核作業`);
-    }
-    const head = rows[hr].map(norm);
+    // 標題列不一定在第 1 列、也不一定在第 1 張工作表：找有「受理編號」的那一列。欄名去掉所有空白再比對。
+    const { rows, hr } = findHeader(arrayBuffer, cells => cells.includes('受理編號'), false, '欄位「受理編號」（請確認是否為壽險促成審核作業）');
+    const head = rows[hr].map(normCell);
     const idx = {};
     for (const k of Object.keys(NEED)) {
       idx[k] = head.indexOf(k);
@@ -401,7 +421,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
         保額: num(get('保額')), 投保年齡: num(get('投保年齡')), 主約保費: num(get('主約保費')), 業績FYP: num(get('業績FYP')),
       });
     }
-    return { sheetName, cases: out };
+    return { cases: out };
   }
 
   // ---------- 寫 C：新契約送件紀錄表 ----------
@@ -476,25 +496,28 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   };
   const TIME_KEYS = ['am', 'pm', 'total', 'first', 'last', 'newT', 'folT'];
   function parseKpi(arrayBuffer) {
-    const wb = readBook(arrayBuffer);
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
-    const hr = rows.findIndex(r => r.some(v => String(v).replace(/\s/g, '') === '行銷員'));
-    if (hr < 0) throw new Error('找不到「行銷員」表頭，請確認檔案是否為 KPI活動績效統計表');
-    const head = rows[hr].map((h, c) => (String(h) + String(rows[hr + 1][c] || '')).replace(/\s/g, '')
-      .replace(/&gt;|＞/g, '>').replace(/&lt;|＜/g, '<').replace(/＝/g, '=').replace(/&amp;/g, '&').replace(/（/g, '(').replace(/）/g, ')'));
+    // 表頭列：有一格是「行銷員」（兩列表頭的上列）或「行銷員名稱」（一列表頭）
+    const { rows, hr } = findHeader(arrayBuffer, cells => cells.some(v => v === '行銷員' || v === '行銷員名稱'), true,
+      '「行銷員」表頭（請確認是否為 KPI活動績效統計表）');
+    const fix = s => normCell(s).replace(/&gt;|＞/g, '>').replace(/&lt;|＜/g, '<').replace(/＝/g, '=').replace(/&amp;/g, '&')
+      .replace(/（/g, '(').replace(/）/g, ')');
+    // 欄名：兩列表頭接起來（例：「Talk Time」+「(上午)」）；也接受一列就寫完整的
+    const two = rows[hr].map((h, c) => fix(String(h) + String((rows[hr + 1] || [])[c] || '')));
+    const one = rows[hr].map(fix);
     const idx = {};
     for (const [k, h] of Object.entries(KPI_COLS)) {
-      idx[k] = head.indexOf(h.replace(/\s/g, ''));
-      if (idx[k] < 0 && k !== 'calls' && k !== 'email') throw new Error(`找不到欄位「${h}」`);
+      const want = fix(h);
+      idx[k] = two.indexOf(want) >= 0 ? two.indexOf(want) : one.indexOf(want);
+      if (idx[k] < 0 && k !== 'calls' && k !== 'email') throw new Error(`找不到欄位「${h}」。表頭看到的是：「${two.filter(v => v).slice(0, 8).join('、')}」`);
     }
     const period = (rows.slice(0, hr).flat().find(v => /查詢期間/.test(v)) || '').toString();
-    const pm = period.match(/(\d{4})\/(\d{2})\/(\d{2})/);
+    const pm = period.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
     const out = [];
-    for (let r = hr + 2; r < rows.length; r++) {
+    for (let r = hr + 1; r < rows.length; r++) {
       const row = rows[r], name = String(row[idx.name] || '').trim();
-      // A 欄是統計日期（Excel 數字或「11/5/26」這種文字）；小計、平均、總計列的 A 欄是文字
-      if (!name || !(typeof row[0] === 'number' || row[0] instanceof Date || /^\d/.test(String(row[0]).trim()))) continue;
+      // 跳過：第二列表頭、小計／平均／總計列（A 欄或姓名欄是這些字）。A 欄日期在網頁格式可能是合併儲存格而空白，所以不靠 A 欄判斷。
+      if (!name || name === '名稱' || /小計|平均|總計|合計|總通時/.test(name) || /小計|平均|總計|合計/.test(String(row[0]))) continue;
+      if (TIME_KEYS.every(k => idx[k] < 0 || toSec(row[idx[k]]) == null)) continue; // 沒有任何時間 → 不是人員列
       const p = { name };
       for (const k of Object.keys(KPI_COLS)) {
         if (k === 'name' || idx[k] < 0) continue;
@@ -503,7 +526,8 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       }
       out.push(p);
     }
-    return { sheetName: wb.SheetNames[0], periodDate: pm ? pm[1] + pm[2] + pm[3] : '', people: out };
+    if (!out.length) throw new Error('有找到表頭，但下面沒有讀到任何人員資料');
+    return { periodDate: pm ? pm[1] + pm[2].padStart(2, '0') + pm[3].padStart(2, '0') : '', people: out };
   }
 
   // ---------- 通時規則 ----------
