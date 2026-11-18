@@ -66,7 +66,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.17 13:05</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 09:11</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -103,6 +103,9 @@
     <h2>③ 新契約送件紀錄表</h2>
     <div class="row">
       <label>表頭日期 <input id="outDate" type="date"></label>
+      <button class="light" type="button" data-od="today">今天</button>
+      <button class="light" type="button" data-od="file">檔名日期</button>
+      <button class="light" type="button" data-od="next">檔名的下一個上班日</button>
       <span id="dateWhy" class="note"></span>
     </div>
     <div id="warn" class="msg"></div>
@@ -1036,7 +1039,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const fd = Core.parseYmd(audit.fileDate);
     const od = Core.nextWorkday(fd, CAL);
     $('outDate').value = toInput(od);
-    $('dateWhy').textContent = `檔名日期 ${Core.rocDot(fd)} 的下一個上班日（依人事行政總處辦公日曆），可自行修改`;
+    $('dateWhy').textContent = `預設是檔名日期 ${Core.rocDot(fd)} 的下一個上班日（依人事行政總處辦公日曆）；可按左邊按鈕或直接點日期修改`;
     const c = audit.cases;
     // 可能重複：同客戶、同服務人員、同保費
     const key = x => `${x.客戶姓名}|${x.服務人員}|${x.保費}`;
@@ -1316,6 +1319,13 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     t.textContent = Core.newContractTitle($('group').value.trim(), $('ext').value.trim(), fromInput($('outDate').value));
   }
   ['group', 'ext', 'outDate'].forEach(k => $(k).addEventListener('input', updateTitle));
+  // 表頭日期快速鍵：今天／檔名日期／檔名的下一個上班日
+  document.querySelectorAll('[data-od]').forEach(b => b.addEventListener('click', () => {
+    if (!audit) return;
+    const fd = Core.parseYmd(audit.fileDate), now = new Date();
+    const d = { today: new Date(now.getFullYear(), now.getMonth(), now.getDate()), file: fd, next: Core.nextWorkday(fd, CAL) }[b.dataset.od];
+    $('outDate').value = toInput(d); $('dlMsg').textContent = ''; updateTitle();
+  }));
 
   $('dl').addEventListener('click', async () => {
     if (!audit || !$('outDate').value) return;
