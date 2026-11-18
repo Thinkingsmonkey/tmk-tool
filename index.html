@@ -64,12 +64,13 @@
   .rulebox table { width:auto; font-size:16px; margin-top:8px; }
   .sw { display:inline-block; min-width:5.5em; padding:0 6px; border:1px solid #bbb; text-align:center; margin-right:6px; }
   button.light { background:#fff; color: var(--accent); border:1px solid var(--accent); padding: 6px 16px; }
+  button.light.on { background: var(--accent); color:#fff; } /* 目前選的那個 */
 </style>
 </head>
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 09:57</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 10:05</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -147,6 +148,10 @@
       <div id="amWarn" class="msg"></div>
       <div id="amGroup" style="margin-top:12px"></div>
       <div class="row" style="margin-top:12px">
+        <span class="note">數字對齊：</span>
+        <button class="light" type="button" data-align="left">靠左</button>
+        <button class="light" type="button" data-align="center">置中</button>
+        <button class="light" type="button" data-align="right">靠右</button>
         <button id="cpAm">複製給組員（貼到 Outlook）</button>
         <span id="cpAmMsg" class="note"></span>
       </div>
@@ -1121,6 +1126,8 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   // 1.5 → 一天半、0.5 → 半天、2.5 → 2 天半
   const dayWord = v => { const w = Math.floor(v), h = v - w >= 0.5; return w === 0 ? '半天' : `${w === 1 ? '一' : w} 天${h ? '半' : ''}`.replace('一 天', '一天'); };
   // 金句「換一句」：記住今天跳了幾句（只記最近那一天）
+  const amAlign = () => (['left', 'center', 'right'].includes(store.get('amAlign', '')) ? store.get('amAlign', '') : 'center');
+  document.querySelectorAll('[data-align]').forEach(b => b.addEventListener('click', () => { store.set('amAlign', b.dataset.align); renderAm(); }));
   const quoteSkips = () => { try { return JSON.parse(store.get('quoteSkip', '')) || {}; } catch (e) { return {}; } };
   function amData() {
     const r = Core.morningReport(perf, audit, { cal: CAL, excluded: amExcl, levels: amLevels, hsRate: Number($('hsRate').value) / 100, cxRate: Number($('cxRate').value) / 100, perfMode: perfMode() });
@@ -1144,7 +1151,8 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const list = (forMail ? act : r.rows).slice().sort((a, b) => (a.excluded - b.excluded) || (order[a.light] - order[b.light]));
     const rows = list.map(x => {
       const st = forMail ? `${cell}${bg[x.light] ? `background:${bg[x.light]};` : ''}` : '';
-      const td = (v, extra = 'text-align:center') => `<td style="${st}${extra}">${v}</td>`; // 複製到 Outlook 時數字置中（姓名另外指定靠左）
+      // 數字格的對齊照「數字對齊」按鈕（畫面和複製到 Outlook 一樣）；姓名固定靠左
+      const td = (v, extra = `text-align:${amAlign()}`) => `<td style="${st}${extra}">${v}</td>`;
       const lv = forMail ? x.level : `<input type="number" class="lvin${x.levelEdited ? ' edited' : ''}" data-lv="${esc(x.name)}" value="${x.level}" title="業績報表上是 ${x.levelOrig}${x.levelEdited ? '，你改成 ' + x.level : ''}">`;
       if (x.excluded) return `<tr class="excl">` + td(esc(x.name), 'text-align:left') + `<td colspan="10" class="note">不列入（不算人數、不進提醒總表、不複製）</td><td class="ctl"><input type="checkbox" data-ax="${esc(x.name)}" checked></td></tr>`;
       return `<tr class="lt-${x.light}">` + td(esc(x.name), 'text-align:left') + td(lv) +
@@ -1188,6 +1196,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       `<li>排序：紅底 → 黃底 → 白底</li></ul>`;
     $('amWarn').innerHTML = r.warn.map(w => `<div class="warn">⚠ ${esc(w)}</div>`).join('');
     $('cpAmMsg').textContent = '';
+    document.querySelectorAll('[data-align]').forEach(b => b.classList.toggle('on', b.dataset.align === amAlign()));
     $('amGroup').innerHTML = amGroupHtml(r, false);
     $('quoteNext').addEventListener('click', () => { store.set('quoteSkip', JSON.stringify({ [r.today]: (quoteSkips()[r.today] || 0) + 1 })); renderAm(); });
     $('amGroup').querySelectorAll('[data-ax]').forEach(el => el.addEventListener('change', () => {
