@@ -66,7 +66,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 09:11</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 09:18</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -745,11 +745,21 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     return perf.dates.includes(D) && perf.people.some(p => (p.counts[D] || 0) > 0 || (p.dayP && p.dayP[D] > 0));
   }
 
+  // ---------- 審核作業是哪一天的案件 ----------
+  // 公司的檔名是「下載那天」，內容是前一個上班日的案件（例：_20261118 裝的是 11/17 促成的件）。
+  // 以檔案裡的促成日期為準（取最晚的一天）；檔案沒有案件時，用檔名的前一個上班日。
+  function prevWorkday(d, cal) { const p = new Date(d); do { p.setDate(p.getDate() - 1); } while (!isWorkday(p, cal)); return p; }
+  function auditDay(audit, cal) {
+    const ds = (audit.cases || []).map(c => +c.促成日期).filter(n => n > 20000000);
+    if (ds.length) return Math.max(...ds);
+    return cal ? ymd(prevWorkday(parseYmd(String(audit.fileDate)), cal)) : +audit.fileDate;
+  }
+
   // ---------- 聽 CALL 人員：連續三天沒有舉績 ----------
   // 最後一天＝審核作業的檔名日期（早上 09:30 前業績報表還沒更新到這天），用審核作業的件數；
   // 前兩天＝業績報表裡、這天以前最近的兩個有資料的日期。
   function listenCall(perf, audit, opt) {
-    const D = +audit.fileDate, warn = [];
+    const D = auditDay(audit, opt.cal), warn = [];
     const updated = perfUpdated(perf, D, opt.perfMode);
     const before = perf.dates.filter(d => d < D).sort((a, b) => a - b);
     const days = before.slice(-2);
@@ -828,7 +838,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   function morningReport(perf, audit, opt) {
     const cal = opt.cal, hsRate = opt.hsRate ?? 0.7, cxRate = opt.cxRate ?? 0.25, warn = [];
     const lastPerf = Math.max(...perf.dates);
-    const D = audit ? +audit.fileDate : lastPerf;
+    const D = audit ? auditDay(audit, cal) : lastPerf;
     const updated = !audit || perfUpdated(perf, D, opt.perfMode);
     const perfHasD = perf.dates.includes(D);            // 資料算到哪一天（昨天）
     const today = ymd(nextWorkday(parseYmd(String(D)), cal)); // 早上報表給的那一天
@@ -879,7 +889,9 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
         excluded, hsN: p.hsN, hsList, pending, jjNBefore: p.jjN - dayDN, pendingN: Math.max(0, p.jjN - dayDN - p.hsN),
       };
     });
-    return { month: m, D, today, todayN, total, passed, remain, ratio, factor, rows, warn, quote: quoteOf(today), addAudit, hasSend, updated: !addAudit };
+    // 剩幾天（含今天）：工作月最後一天核實只到下午四點，算半天（例：11/18 → 今天＋11/19 半天＝1.5 天）
+    const daysLeft = todayN ? total - todayN + 1 - 0.5 : null;
+    return { month: m, D, today, todayN, daysLeft, total, passed, remain, ratio, factor, rows, warn, quote: quoteOf(today), addAudit, hasSend, updated: !addAudit };
   }
 
   // ---------- 寫 C：進件 EMAIL ----------
@@ -915,7 +927,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   }
 
   const newContractTitle = (group, ext, d) => header('直效新契約送件紀錄表', group, ext, rocDot(d));
-  G.Core = { newContractTitle, ymd, parseYmd, isWorkday, nextWorkday, rocDot, identifyFile, parseAudit, buildNewContract, PAGE_ROWS,
+  G.Core = { newContractTitle, ymd, parseYmd, isWorkday, nextWorkday, prevWorkday, auditDay, rocDot, identifyFile, parseAudit, buildNewContract, PAGE_ROWS,
     parseKpi, talkRules, firstDeadline, talkTarget, buildTalkTime, hms, LEAVES, LEAVE_KEYS, MORNING, morningOf, isMorningFile, buildEmail, parsePerf, listenCall, morningReport, WORK_MONTHS, workMonthOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
@@ -1036,17 +1048,19 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   }
 
   function show() {
-    const fd = Core.parseYmd(audit.fileDate);
-    const od = Core.nextWorkday(fd, CAL);
+    const fd = Core.parseYmd(audit.fileDate), dd = Core.parseYmd(String(Core.auditDay(audit, CAL)));
+    const od = Core.nextWorkday(dd, CAL);
     $('outDate').value = toInput(od);
-    $('dateWhy').textContent = `預設是檔名日期 ${Core.rocDot(fd)} 的下一個上班日（依人事行政總處辦公日曆）；可按左邊按鈕或直接點日期修改`;
+    $('dateWhy').textContent = `預設是促成日期 ${Core.rocDot(dd)} 的下一個上班日（依人事行政總處辦公日曆）；可按左邊按鈕或直接點日期修改`;
     const c = audit.cases;
     // 可能重複：同客戶、同服務人員、同保費
     const key = x => `${x.客戶姓名}|${x.服務人員}|${x.保費}`;
     const cnt = {}; c.forEach(x => { cnt[key(x)] = (cnt[key(x)] || 0) + 1; });
     c.forEach(x => { x.dup = cnt[key(x)] > 1; if (x.removed === undefined) x.removed = false; });
     const dates = [...new Set(c.map(x => x.促成日期).filter(Boolean))];
-    audit.dateNote = dates.length && !(dates.length === 1 && dates[0] === audit.fileDate)
+    // 正常：只有一個促成日期，而且是檔名那天或檔名的前一個上班日（公司檔名是下載那天）
+    const okDays = [audit.fileDate, String(Core.ymd(Core.prevWorkday(fd, CAL)))];
+    audit.dateNote = dates.length && !(dates.length === 1 && okDays.includes(String(dates[0])))
       ? `⚠ 檔名日期是 ${Core.rocDot(fd)}，但檔案裡的促成日期是 ${dates.map(d => Core.rocDot(Core.parseYmd(d))).join('、')}，請確認是不是放錯檔案`
       : '';
     $('out').classList.remove('hidden');
@@ -1081,7 +1095,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const show = !!(perf && audit);
     $('perfModeBox').classList.toggle('hidden', !show);
     if (!show) return;
-    const D = +audit.fileDate, has = perf.dates.includes(D), dd = Core.rocDot(Core.parseYmd(String(D)));
+    const D = Core.auditDay(audit, CAL), has = perf.dates.includes(D), dd = Core.rocDot(Core.parseYmd(String(D)));
     const auto = has && perf.people.some(p => (p.counts[D] || 0) > 0 || (p.dayP && p.dayP[D] > 0));
     const use = perfMode() === 'auto' ? auto : perfMode() === 'updated';
     $('perfModeWhy').textContent = `（昨天＝審核作業的 ${dd}；` + (perfMode() === 'auto' ? `自動判斷：報表${auto ? '已經有' : '還沒有'}這天的業績；` : '') +
@@ -1100,6 +1114,8 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   let amLevels = (() => { try { return JSON.parse(store.get('amLevels', '')) || {}; } catch (e) { return {}; } })();
   const fmtP = v => (v == null ? '—' : (Math.round(v * 10) / 10).toFixed(1));
   const pct = v => Math.round(v * 100) + '%';
+  // 1.5 → 一天半、0.5 → 半天、2.5 → 2 天半
+  const dayWord = v => { const w = Math.floor(v), h = v - w >= 0.5; return w === 0 ? '半天' : `${w === 1 ? '一' : w} 天${h ? '半' : ''}`.replace('一 天', '一天'); };
   function amData() {
     return Core.morningReport(perf, audit, { cal: CAL, excluded: amExcl, levels: amLevels, hsRate: Number($('hsRate').value) / 100, cxRate: Number($('cxRate').value) / 100, perfMode: perfMode() });
   }
@@ -1109,7 +1125,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const cell = forMail ? `border:1px solid #999;padding:3px 8px;${F}white-space:nowrap;` : '';
     const act = r.rows.filter(x => !x.excluded);
     const n = act.length, jjR = act.filter(x => x.jjReach).length, netR = act.filter(x => x.netReach).length;
-    const day = r.todayN ? `${r.month.ym} 工　今天第 <b>${r.todayN}</b> 天／共 ${r.total} 天（剩 ${r.total - r.todayN + 1} 天，含今天）` : `${r.month.ym} 工已結束（共 ${r.total} 天）`;
+    const day = r.todayN ? `${r.month.ym} 工　今天第 <b>${r.todayN}</b> 天／共 ${r.total} 天（剩 ${dayWord(r.daysLeft)}，含今天；${Core.rocDot(Core.parseYmd(String(r.month.end)))} 核實到下午四點，算半天）` : `${r.month.ym} 工已結束（共 ${r.total} 天）`;
     const yd = act.filter(x => x.yN).sort((a, b) => b.yP - a.yP);
     const ydTxt = yd.length ? yd.map(x => `${esc(x.name)} ${x.yN} 件 ${fmtP(x.yP)}P`).join('、') + `　合計 ${yd.reduce((t, x) => t + x.yN, 0)} 件 ${fmtP(yd.reduce((t, x) => t + x.yP, 0))}P` : '（昨天沒有進件）';
     const bg = { red: '#f8d7da', yellow: '#fff2cc', green: '' };
