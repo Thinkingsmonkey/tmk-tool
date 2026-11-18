@@ -69,7 +69,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 09:43</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 09:57</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -1144,7 +1144,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const list = (forMail ? act : r.rows).slice().sort((a, b) => (a.excluded - b.excluded) || (order[a.light] - order[b.light]));
     const rows = list.map(x => {
       const st = forMail ? `${cell}${bg[x.light] ? `background:${bg[x.light]};` : ''}` : '';
-      const td = (v, extra = '') => `<td style="${st}${extra}">${v}</td>`;
+      const td = (v, extra = 'text-align:center') => `<td style="${st}${extra}">${v}</td>`; // 複製到 Outlook 時數字置中（姓名另外指定靠左）
       const lv = forMail ? x.level : `<input type="number" class="lvin${x.levelEdited ? ' edited' : ''}" data-lv="${esc(x.name)}" value="${x.level}" title="業績報表上是 ${x.levelOrig}${x.levelEdited ? '，你改成 ' + x.level : ''}">`;
       if (x.excluded) return `<tr class="excl">` + td(esc(x.name), 'text-align:left') + `<td colspan="10" class="note">不列入（不算人數、不進提醒總表、不複製）</td><td class="ctl"><input type="checkbox" data-ax="${esc(x.name)}" checked></td></tr>`;
       return `<tr class="lt-${x.light}">` + td(esc(x.name), 'text-align:left') + td(lv) +
@@ -1153,7 +1153,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
         td(x.yN ? `${x.yN}件 ${fmtP(x.yP)}` : '') +
         (forMail ? '' : `<td class="ctl"><input type="checkbox" data-ax="${esc(x.name)}"></td>`) + '</tr>';
     }).join('');
-    const th = (h, color, span = '') => `<th ${span} style="${forMail ? cell + 'font-weight:bold;' : ''}background:${color};">${h}</th>`;
+    const th = (h, color, span = '') => `<th ${span} style="${forMail ? cell + 'font-weight:bold;text-align:center;' : ''}background:${color};">${h}</th>`;
     const NB = '#eef1f5';
     const head1 = th('組員', NB, 'rowspan="2"') + th('職級', NB, 'rowspan="2"') + th('舉績', GJ, 'colspan="6"') + th('核實', GH, 'colspan="2"') + th('昨日', NB, 'rowspan="2"') + (forMail ? '' : th('不列入', NB, 'rowspan="2"'));
     const head2 = ['舉績目標', '舉績', '達成率', '還差', '應有進度\n(舉績)', '每日需'].map(h => th(forMail ? h.replace('\n', '') : h, GJ)).join('') +
