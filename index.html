@@ -55,6 +55,9 @@
   #kpiTable tr > :first-child { position: sticky; left: 0; z-index: 1; background: var(--card); box-shadow: inset -1px 0 0 var(--line), 2px 0 4px rgba(0,0,0,.08); }
   #kpiTable tr > th:first-child { background: #eef1f5; }
   td.ctl input[type=number] { width: 70px; font: inherit; text-align:center; }
+  td.ctl input[type=number].am, td.ctl input[type=number].low { color:#ff0000; font-weight:bold; }
+  td.ctl input[type=number].low { background:#ffff00; }
+  td.ctl input[type=number].edited { border:2px solid var(--accent); }
   td.ctl select { font: inherit; }
   td.ctl input[type=checkbox] { width: 22px; height: 22px; }
   .rulebox { border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin-bottom:14px; background:#fbfcfe; font-size:17px; }
@@ -70,7 +73,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 12:45</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 12:48</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -588,6 +591,9 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   // 全天版低於 70 通 → 紅字粗體、黃底；早上版不看（照舊紅字粗體）；勾「不看通時」的人不標
   const CALLS_MIN = 70;
   const callsOf = p => (p.newN == null || p.newN === '') && (p.folN == null || p.folN === '') ? '' : (+p.newN || 0) + (+p.folN || 0);
+  // 手動改過（opt.calls 裡有填）就用手動的，沒填就用預設加總
+  const callsEdited = (p, opt) => !!(opt.calls && opt.calls[p.name] != null && opt.calls[p.name] !== '' && !isNaN(+opt.calls[p.name]));
+  const callsFor = (p, opt) => callsEdited(p, opt) ? +opt.calls[p.name] : callsOf(p);
   const callsLow = (v, opt, excluded) => !opt.morning && !excluded && v !== '' && v != null && !isNaN(+v) && +v < CALLS_MIN;
   function talkRules(p, opt) {
     const raw = String((opt.leave && opt.leave[p.name]) || 0), leaveK = raw === '5' ? 'pmOff' : raw, L = leaveOf(leaveK);
@@ -652,8 +658,9 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
         cell.font = { ...font };
       });
       const calls = ws.getCell(r, 11), note = ws.getCell(r, 12);
-      const cv = callsOf(p); // 公式：在 Excel 改初訪／續訪名單數，通數和標色會跟著變
-      calls.value = { formula: `IF(AND(G${r}="",H${r}=""),"",N(G${r})+N(H${r}))`, result: cv === '' ? '' : cv };
+      // 沒手動改：寫公式（在 Excel 改初訪／續訪名單數，通數和標色會跟著變）；手動改過：寫你填的數字
+      const cv = callsOf(p);
+      calls.value = callsEdited(p, opt) ? callsFor(p, opt) : { formula: `IF(AND(G${r}="",H${r}=""),"",N(G${r})+N(H${r}))`, result: cv === '' ? '' : cv };
       // 早上版：照舊紅字粗體；全天版：一般黑字，低於 70 通由條件式格式化標紅字黃底（在 Excel 自己 key 也會重算）
       calls.font = opt.morning ? { ...font, bold: true, color: { argb: 'FFFF0000' } } : { ...font };
       note.value = rule.leaveLabel || null; // 「不看通時」只在工具畫面上看得到，不寫進 Excel
@@ -945,7 +952,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
 
   const newContractTitle = (group, ext, d) => header('直效新契約送件紀錄表', group, ext, rocDot(d));
   G.Core = { quoteOf, newContractTitle, ymd, parseYmd, isWorkday, nextWorkday, prevWorkday, auditDay, rocDot, identifyFile, parseAudit, buildNewContract, PAGE_ROWS,
-    parseKpi, CALLS_MIN, callsOf, callsLow, talkRules, firstDeadline, talkTarget, buildTalkTime, hms, LEAVES, LEAVE_KEYS, MORNING, morningOf, isMorningFile, buildEmail, parsePerf, listenCall, morningReport, WORK_MONTHS, workMonthOf };
+    parseKpi, CALLS_MIN, callsOf, callsEdited, callsFor, callsLow, talkRules, firstDeadline, talkTarget, buildTalkTime, hms, LEAVES, LEAVE_KEYS, MORNING, morningOf, isMorningFile, buildEmail, parsePerf, listenCall, morningReport, WORK_MONTHS, workMonthOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
 <script>
@@ -1415,6 +1422,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   const isAm = () => document.querySelector('input[name=kmode]:checked').value === 'am';
   const kpiOpt = () => ({ morning: isAm(), meeting: document.querySelector('input[name=meet]:checked').value === '1', leave, excluded, calls: kpi.calls, date: Core.parseYmd(kpi.fileDate) });
   const hm = s => Core.hms(s).slice(0, -3);
+  const callsCls = (p, opt, ex) => [opt.morning ? 'am' : '', Core.callsLow(Core.callsFor(p, opt), opt, ex) ? 'low' : '', Core.callsEdited(p, opt) ? 'edited' : ''].join(' ').trim();
 
   function showKpi() {
     $('kpiOut').classList.remove('hidden');
@@ -1458,7 +1466,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       `<li><span class="sw" style="background:#ffff00">17:40:00</span>合計未達通時標準，而且 18:00 前就掛 → 合計、最末通 黃底（有達到通時標準就可以 18:00 前走，不會標）</li>` +
       `<li><span class="sw" style="background:#c0e5f5">18:30:00</span>合計未達通時標準，18:00~18:55 之間掛 → 最末通 藍綠底</li>` +
       `<li><span class="sw" style="background:#c0e5f5">10:05:50</span>第一通在期限以後（或整天沒撥）→ 第一通 藍綠底；早上請假的人＝上班時間 + 15 分鐘內要撥</li>` +
-      `<li><span class="sw" style="color:#f00;font-weight:bold;background:#ffff00">65</span>通數＝初訪名單數＋續訪名單數（自動加總），低於 ${Core.CALLS_MIN} 通 → 通數 紅字粗體、黃底</li>` +
+      `<li><span class="sw" style="color:#f00;font-weight:bold;background:#ffff00">65</span>通數 預設＝初訪名單數＋續訪名單數，可以自己改（改過的格子外框變藍；清空回到預設），低於 ${Core.CALLS_MIN} 通 → 通數 紅字粗體、黃底</li>` +
       `<li>提早下班（下午特休、下午請假、6小時）：合計未達通時標準，而且在下表「提早掛斷線」以前掛 → 合計、最末通 黃底（不看 18:00、18:55）</li>` +
       `<li>請假只影響「通時標準」和「第一通期限」，數字見下表</li>` +
       `<li>勾「不看通時」的人：以上都不標，Excel 上也不會寫出來</li></ul>` +
@@ -1472,11 +1480,20 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       const r = Core.talkRules(p, opt), lv = r.leaveK;
       return `<tr class="${r.excluded ? 'excl' : ''}"><td>${esc(p.name)}</td><td>${H(p.am)}</td><td>${H(p.pm)}</td><td class="${r.redTotal ? 'red' : ''} ${r.yellow ? 'yel' : ''}">${H(p.total)}</td>` +
         `<td class="${r.fillFirst ? 'fill' : ''}">${H(p.first)}</td><td class="${r.fillLast ? 'fill' : ''} ${r.yellow ? 'yel' : ''}">${H(p.last)}</td><td>${p.newN ?? ''}</td><td>${p.folN ?? ''}</td><td>${H(p.newT)}</td><td>${H(p.folT)}</td>` +
-        `<td class="${opt.morning ? 'red' : Core.callsLow(Core.callsOf(p), opt, r.excluded) ? 'red yel' : ''}">${Core.callsOf(p)}</td>` +
+        `<td class="ctl"><input type="number" min="0" data-calls="${esc(p.name)}" data-ex="${r.excluded ? 1 : ''}" class="${callsCls(p, opt, r.excluded)}" value="${Core.callsFor(p, opt)}" title="預設＝初訪 ${p.newN ?? 0}＋續訪 ${p.folN ?? 0}＝${Core.callsOf(p)}；清空就回到預設"></td>` +
         `<td class="ctl"><select data-leave="${esc(p.name)}">${Core.LEAVE_KEYS.map(k => `<option value="${k}" ${k === lv ? 'selected' : ''}>${k === '0' ? '—' : Core.LEAVES[k].label + (Core.LEAVES[k].end < Core.LEAVES[0].end ? `（${hm(Core.LEAVES[k].end)} 下班）` : `（${hm(Core.LEAVES[k].start)} 上班）`)}</option>`).join('')}</select></td>` +
         `<td class="ctl"><input type="checkbox" data-excl="${esc(p.name)}" ${r.excluded ? 'checked' : ''}></td></tr>`;
     }).join('');
     const t = $('kpiTable');
+    // 通數：改了就記下來（跟預設一樣就當沒改）；清空＝回到預設加總
+    t.querySelectorAll('[data-calls]').forEach(el => {
+      const p = kpiPeople().find(x => x.name === el.dataset.calls);
+      el.addEventListener('input', () => {
+        if (el.value === '' || +el.value === Core.callsOf(p)) delete kpi.calls[p.name]; else kpi.calls[p.name] = el.value;
+        el.className = callsCls(p, kpiOpt(), !!el.dataset.ex);
+      });
+      el.addEventListener('change', () => { if (el.value === '') el.value = Core.callsOf(p); });
+    });
     t.querySelectorAll('[data-leave]').forEach(el => el.addEventListener('change', () => {
       const v = el.value; if (v !== '0') leave[el.dataset.leave] = v; else delete leave[el.dataset.leave]; saveLeave(); renderKpi();
     }));
@@ -1504,7 +1521,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       const r = Core.talkRules(p, opt);
       const bg = c => c ? `background:${c};` : '';
       const tdc = (v, extra = '') => `<td style="${base}${extra}">${v}</td>`;
-      const calls = Core.callsOf(p);
+      const calls = Core.callsFor(p, opt);
       return '<tr>' + tdc(esc(p.name)) + tdc(t(p.am)) + tdc(t(p.pm)) +
         tdc(t(p.total), (r.redTotal ? 'color:#f00;font-weight:bold;' : '') + bg(r.yellow && '#ffff00')) +
         tdc(t(p.first), bg(r.fillFirst && '#c0e5f5')) +
@@ -1512,7 +1529,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
         tdc(p.newN ?? '') + tdc(p.folN ?? '') + tdc(t(p.newT)) + tdc(t(p.folT)) +
         tdc(calls, opt.morning ? 'color:#f00;font-weight:bold;' : Core.callsLow(calls, opt, r.excluded) ? 'color:#f00;font-weight:bold;background:#ffff00;' : '') + tdc(esc(r.leaveLabel || '')) + '</tr>';
     }).join('');
-    const text = [h1.join('\t'), ...kpiPeople().map(p => [p.name, t(p.am), t(p.pm), t(p.total), t(p.first), t(p.last), p.newN ?? '', p.folN ?? '', t(p.newT), t(p.folT), Core.callsOf(p), Core.talkRules(p, opt).leaveLabel || ''].join('\t'))].join('\r\n');
+    const text = [h1.join('\t'), ...kpiPeople().map(p => [p.name, t(p.am), t(p.pm), t(p.total), t(p.first), t(p.last), p.newN ?? '', p.folN ?? '', t(p.newT), t(p.folT), Core.callsFor(p, opt), Core.talkRules(p, opt).leaveLabel || ''].join('\t'))].join('\r\n');
     return { html: `<table style="border-collapse:collapse"><tr>${h1.map(a => th(a, 1)).join('')}</tr><tr>${h2.map(a => th(a, 0)).join('')}</tr>${rows}</table>`, text };
   }
   $('cpKpi').addEventListener('click', async () => {
