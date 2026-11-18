@@ -69,7 +69,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 09:31</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 09:43</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -833,7 +833,8 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     ['保險不是硬賣出去的，是客戶信任你之後，自己決定要買的。', '業務界常說的話'],
     ['今天撥出去的每一通電話，都是在為月底的業績存款。', '業務界常說的話'],
   ];
-  const quoteOf = d => { const [text, who] = QUOTES[Math.abs(Math.floor(parseYmd(String(d)).getTime() / 86400e3)) % QUOTES.length]; return { text, who }; };
+  // skip：按「換一句」往後跳幾句（同一天固定，複製出去也是同一句）
+  const quoteOf = (d, skip = 0) => { const [text, who] = QUOTES[(Math.abs(Math.floor(parseYmd(String(d)).getTime() / 86400e3)) + skip) % QUOTES.length]; return { text, who }; };
 
   // ---------- 早上報表：舉績目標進度 ----------
   // 目標（舉績）＝ 職級 ÷ (核實率 × (1 − 契撤率))：要讓月底淨核實到職級，舉績要做到多少
@@ -930,7 +931,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   }
 
   const newContractTitle = (group, ext, d) => header('直效新契約送件紀錄表', group, ext, rocDot(d));
-  G.Core = { newContractTitle, ymd, parseYmd, isWorkday, nextWorkday, prevWorkday, auditDay, rocDot, identifyFile, parseAudit, buildNewContract, PAGE_ROWS,
+  G.Core = { quoteOf, newContractTitle, ymd, parseYmd, isWorkday, nextWorkday, prevWorkday, auditDay, rocDot, identifyFile, parseAudit, buildNewContract, PAGE_ROWS,
     parseKpi, talkRules, firstDeadline, talkTarget, buildTalkTime, hms, LEAVES, LEAVE_KEYS, MORNING, morningOf, isMorningFile, buildEmail, parsePerf, listenCall, morningReport, WORK_MONTHS, workMonthOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
@@ -1119,8 +1120,12 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   const pct = v => Math.round(v * 100) + '%';
   // 1.5 → 一天半、0.5 → 半天、2.5 → 2 天半
   const dayWord = v => { const w = Math.floor(v), h = v - w >= 0.5; return w === 0 ? '半天' : `${w === 1 ? '一' : w} 天${h ? '半' : ''}`.replace('一 天', '一天'); };
+  // 金句「換一句」：記住今天跳了幾句（只記最近那一天）
+  const quoteSkips = () => { try { return JSON.parse(store.get('quoteSkip', '')) || {}; } catch (e) { return {}; } };
   function amData() {
-    return Core.morningReport(perf, audit, { cal: CAL, excluded: amExcl, levels: amLevels, hsRate: Number($('hsRate').value) / 100, cxRate: Number($('cxRate').value) / 100, perfMode: perfMode() });
+    const r = Core.morningReport(perf, audit, { cal: CAL, excluded: amExcl, levels: amLevels, hsRate: Number($('hsRate').value) / 100, cxRate: Number($('cxRate').value) / 100, perfMode: perfMode() });
+    r.quote = Core.quoteOf(r.today, quoteSkips()[r.today] || 0); // 畫面和複製都用同一句
+    return r;
   }
   // 給組員看的部分（畫面和複製共用）：金句、天數、職達人數、昨日戰報、進度表
   function amGroupHtml(r, forMail) {
@@ -1156,7 +1161,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const P = forMail ? `<p style="margin:4px 0;${F}">` : '<div class="amday">';
     const Pe = forMail ? '</p>' : '</div>';
     const Q = `「${esc(r.quote.text)}」<span style="font-weight:normal;font-size:${forMail ? '11pt' : '17px'};color:#8a6d3b">　—— ${esc(r.quote.who)}</span>`;
-    return (forMail ? `<p style="margin:4px 0;${F}font-weight:bold;color:#8a4b00">${Q}</p>` : `<div class="amq">${Q}</div>`) +
+    return (forMail ? `<p style="margin:4px 0;${F}font-weight:bold;color:#8a4b00">${Q}</p>` : `<div class="amq">${Q}　<button class="light" type="button" id="quoteNext" title="這句不適合就換下一句；今天會記住換過的那句">換一句</button></div>`) +
       `${P}${day}${Pe}` +
       `${P}舉績職達 <b>${jjR}/${n}</b>　淨核實職達 <b>${netR}/${n}</b>（資料算到 ${Core.rocDot(Core.parseYmd(String(r.D)))}）${Pe}` +
       `${P}昨日戰報（${Core.rocDot(Core.parseYmd(String(r.D))).slice(4)}）：${ydTxt}${Pe}` +
@@ -1184,6 +1189,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     $('amWarn').innerHTML = r.warn.map(w => `<div class="warn">⚠ ${esc(w)}</div>`).join('');
     $('cpAmMsg').textContent = '';
     $('amGroup').innerHTML = amGroupHtml(r, false);
+    $('quoteNext').addEventListener('click', () => { store.set('quoteSkip', JSON.stringify({ [r.today]: (quoteSkips()[r.today] || 0) + 1 })); renderAm(); });
     $('amGroup').querySelectorAll('[data-ax]').forEach(el => el.addEventListener('change', () => {
       const nm = el.dataset.ax; amExcl = amExcl.filter(x => x !== nm); if (el.checked) amExcl.push(nm);
       store.set('amExcl', JSON.stringify(amExcl)); renderAm();
