@@ -68,12 +68,20 @@
   .sw { display:inline-block; min-width:5.5em; padding:0 6px; border:1px solid #bbb; text-align:center; margin-right:6px; }
   button.light { background:#fff; color: var(--accent); border:1px solid var(--accent); padding: 6px 16px; }
   button.light.on { background: var(--accent); color:#fff; } /* 目前選的那個 */
+  #histOut h3 { font-size: 19px; margin: 22px 0 4px; }
+  #histOut select { font: inherit; padding: 4px 8px; }
+  td.best { background:#d9f2df; font-weight:bold; }   /* 個人最好的月 */
+  td.good { color: var(--ok); font-weight:bold; }      /* 達標 */
+  td.bad { color: var(--err); }                         /* 差很多 */
+  tr.excl td { color:#999; }
+  #histMonthTable tr > :first-child, #histPersonTable tr > :first-child { position: sticky; left: 0; background: var(--card); box-shadow: inset -1px 0 0 var(--line); }
+  #histMonthTable tr > th:first-child, #histPersonTable tr > th:first-child { background:#eef1f5; }
 </style>
 </head>
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.18 14:14</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.23 09:38</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -128,6 +136,8 @@
     <div class="note">從同一份「壽險促成審核作業」挑 9 欄，全部的列、順序照原檔（不受 ③ 打勾移除影響）。按「複製表格」後，到 Outlook 信件裡按 Ctrl+V 貼上。</div>
     <div class="row" style="margin-top:12px">
       <button id="cpEm">複製表格（貼到 Outlook）</button>
+      <button id="cpJj" class="light">複製給進件表（貼到 Excel，12 欄）</button>
+      <label class="note"><input type="checkbox" id="jjHead"> 含標題列</label>
       <span id="cpEmMsg" class="note"></span>
     </div>
     <div id="emWarn" class="msg"></div>
@@ -211,6 +221,28 @@
       <button id="cpKpi" class="light">複製表格（貼到 Outlook）</button>
       <span id="dlKpiMsg" class="note"></span>
     </div>
+  </section>
+
+  <section id="histOut" class="card hidden">
+    <h2>⑧ 歷史分析（工作月 KPI 月檔）</h2>
+    <div class="note">把用「工作月」查詢的 (效能)KPI活動績效統計表 拖進 ②（可一次多個），資料會記在這台電腦，下次打開還在。規則：沒有那天的資料＝請假；早上沒通時＝早上請假、下午沒通時＝下午請假；平均只算全天有上班的日子；第一通 10:01 以後算晚；襄理本人不列。</div>
+    <div id="histInfo" class="msg"></div>
+    <div class="row" style="margin-top:8px"><button class="light" id="histClr">清除歷史資料</button><span id="histMsg" class="note"></span></div>
+
+    <h3>全組各工作月</h3>
+    <div style="overflow-x:auto"><table id="histGroup"></table></div>
+    <div id="histBucket" class="msg"></div>
+
+    <h3>某個工作月：每個人</h3>
+    <div class="row"><label>工作月 <select id="histMonth"></select></label>
+      <button class="light" id="cpHistM">複製表格（貼到 Outlook）</button><span id="cpHistMMsg" class="note"></span></div>
+    <div style="overflow-x:auto"><table id="histMonthTable"></table></div>
+
+    <h3>某個人：各工作月</h3>
+    <div class="row"><label>組員 <select id="histPerson"></select></label>
+      <button class="light" id="cpHistP">複製表格（貼到 Outlook）</button><span id="cpHistPMsg" class="note"></span></div>
+    <div style="overflow-x:auto"><table id="histPersonTable"></table></div>
+    <div id="histPersonNote" class="msg"></div>
   </section>
 
   <section class="card">
@@ -340,7 +372,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   // ---------- 讀 A：壽險促成審核作業 ----------
   // 用欄位名稱找欄，不靠欄位位置，公司欄位順序變動也不會錯。
   const NEED = { 受理編號: 1, 送件方式: 1, 客戶姓名: 1, 行銷員姓名: 1, 主約保費: 1, 卡號末四碼: 1, 案件狀況: 0, 促成日期: 0,
-    專案名稱: 0, 產品名稱: 0, 保額: 0, 投保年齡: 0, 業績FYP: 0 };
+    專案名稱: 0, 產品名稱: 0, 保額: 0, 投保年齡: 0, 業績FYP: 0, 專案代碼: 0, 產品代碼: 0 };
   const num = s => { const n = Number(String(s).replace(/,/g, '')); return s === '' || isNaN(n) ? (s === '' ? null : s) : n; };
   // 公司系統匯出的 .xls 有時其實是「網頁」（HTML 表格改副檔名），開頭還有寫壞的 <style>…（style 沒正確結束），
   // 直接交給 SheetJS 會把開頭那段當成儲存格。遇到網頁格式就只取出 <table>…</table> 再讀，
@@ -431,7 +463,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
         案件狀況: get('案件狀況'),
         促成日期: get('促成日期').replace(/\D/g, ''),
         // 進件 EMAIL 用
-        專案名稱: get('專案名稱'), 產品名稱: get('產品名稱'),
+        專案名稱: get('專案名稱'), 產品名稱: get('產品名稱'), 專案代碼: get('專案代碼'), 產品代碼: get('產品代碼'),
         保額: num(get('保額')), 投保年齡: num(get('投保年齡')), 主約保費: num(get('主約保費')), 業績FYP: num(get('業績FYP')),
       });
     }
@@ -507,8 +539,20 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     name: '行銷員名稱', am: 'Talk Time(上午)', pm: 'Talk Time(下午)', total: 'Talk Time(合計)',
     first: '第一通撥號時間', last: '最末通掛斷時間', newN: '初訪名單數', folN: '續訪名單數',
     newT: '初訪通話時間', folT: '續訪通話時間', calls: '總通話數(>=5秒)', email: 'EMail',
+    date: '統計日期', ev1: 'Talk Time(19:00~19:30)', ev2: 'Talk Time(19:30~20:00)', ev3: 'Talk Time(20:00~20:30)',
   };
-  const TIME_KEYS = ['am', 'pm', 'total', 'first', 'last', 'newT', 'folT'];
+  const KPI_OPTIONAL = ['calls', 'email', 'date', 'ev1', 'ev2', 'ev3'];
+  const TIME_KEYS = ['am', 'pm', 'total', 'first', 'last', 'newT', 'folT', 'ev1', 'ev2', 'ev3'];
+  // 統計日期 → yyyymmdd 數字：「2026/10/21」、Excel 日期序號、Date 都接受；讀不懂就 null
+  function kpiDate(v) {
+    if (v instanceof Date && !isNaN(v)) return v.getFullYear() * 10000 + (v.getMonth() + 1) * 100 + v.getDate();
+    if (typeof v === 'number' && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 86400000)); return d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate(); }
+    let m = String(v).trim().match(/^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/);
+    if (m) return +m[1] * 10000 + +m[2] * 100 + +m[3];
+    m = String(v).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/); // SheetJS 文字格式 m/d/yy
+    if (m) return (2000 + +m[3]) * 10000 + +m[1] * 100 + +m[2];
+    return null;
+  }
   function parseKpi(arrayBuffer) {
     // 表頭列：有一格是「行銷員」（兩列表頭的上列）或「行銷員名稱」（一列表頭）
     const { rows, hr } = findHeader(arrayBuffer, cells => cells.some(v => v === '行銷員' || v === '行銷員名稱'), true,
@@ -522,11 +566,12 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     for (const [k, h] of Object.entries(KPI_COLS)) {
       const want = fix(h);
       idx[k] = two.indexOf(want) >= 0 ? two.indexOf(want) : one.indexOf(want);
-      if (idx[k] < 0 && k !== 'calls' && k !== 'email') throw new Error(`找不到欄位「${h}」。表頭看到的是：「${two.filter(v => v).slice(0, 8).join('、')}」`);
+      if (idx[k] < 0 && !KPI_OPTIONAL.includes(k)) throw new Error(`找不到欄位「${h}」。表頭看到的是：「${two.filter(v => v).slice(0, 8).join('、')}」`);
     }
     const period = (rows.slice(0, hr).flat().find(v => /查詢期間/.test(v)) || '').toString();
     const pm = period.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
     const out = [];
+    let lastDate = null; // 統計日期在網頁格式可能是合併儲存格：空白就沿用上一列的日期
     for (let r = hr + 1; r < rows.length; r++) {
       const row = rows[r], name = String(row[idx.name] || '').trim();
       // 跳過：第二列表頭、小計／平均／總計列（A 欄或姓名欄是這些字）。A 欄日期在網頁格式可能是合併儲存格而空白，所以不靠 A 欄判斷。
@@ -536,12 +581,14 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       for (const k of Object.keys(KPI_COLS)) {
         if (k === 'name' || idx[k] < 0) continue;
         const v = row[idx[k]];
+        if (k === 'date') { p.date = kpiDate(v) ?? lastDate; lastDate = p.date; continue; }
         p[k] = v === '' || v == null ? null : TIME_KEYS.includes(k) ? toSec(v) : Number(String(v).replace(/,/g, ''));
       }
       out.push(p);
     }
     if (!out.length) throw new Error('有找到表頭，但下面沒有讀到任何人員資料');
-    return { periodDate: pm ? pm[1] + pm[2].padStart(2, '0') + pm[3].padStart(2, '0') : '', people: out };
+    const dates = [...new Set(out.map(p => p.date).filter(Boolean))].sort();
+    return { periodDate: pm ? pm[1] + pm[2].padStart(2, '0') + pm[3].padStart(2, '0') : '', people: out, dates };
   }
 
   // ---------- 通時規則 ----------
@@ -828,6 +875,78 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     return out;
   }
 
+  // ---------- 歷史分析：工作月 KPI 月檔（每人每天一列） ----------
+  // 規則（使用者 2026-11-23 確認）：
+  //   沒有那天的資料＝請假；早上沒通時＝早上請假、下午沒通時＝下午請假；襄理本人排除；第一通期限一律 10:01
+  //   「那天有資料」以全組為準：某天全組都沒資料（假日、沒抓到）就不算上班日；
+  //   每個人只算他第一天到最後一天有資料之間（避免把到職前、離職後算成請假）
+  const HIST_TT = T(3, 0), HIST_TT2 = T(2, 30), HIST_CALLS = 180;
+  const HIST_FIELDS = ['am', 'pm', 'total', 'first', 'last', 'newN', 'folN', 'calls', 'email', 'ev1', 'ev2', 'ev3'];
+  // 月檔的人員列 → 精簡記錄 {d, n, ...}（存進瀏覽器用）
+  const histRecords = people => people.filter(p => p.date && p.name).map(p => {
+    const r = { d: p.date, n: p.name }; HIST_FIELDS.forEach(k => { if (p[k] != null) r[k] = p[k]; }); return r;
+  });
+  function histDay(r) {
+    const am = r.am || 0, pm = r.pm || 0, tt = r.total || am + pm;
+    return {
+      ...r, tt, cnt: (r.newN || 0) + (r.folN || 0), ev: (r.ev1 || 0) + (r.ev2 || 0) + (r.ev3 || 0),
+      kind: tt <= 0 ? 'off' : am > 0 && pm > 0 ? 'full' : am > 0 ? 'pmOff' : 'amOff',
+    };
+  }
+  // 一群日子 → 指標（平均類只看「全天有上班」的日子，才不會被半天假拉低）
+  function histMetrics(days, expected) {
+    const full = days.filter(x => x.kind === 'full'), att = days.filter(x => x.kind !== 'off');
+    const avg = (arr, f) => arr.length ? arr.reduce((a, x) => a + f(x), 0) / arr.length : null;
+    const m = {
+      expected, attend: att.length, fullN: full.length,
+      leave: expected - att.length, amOff: days.filter(x => x.kind === 'amOff').length, pmOff: days.filter(x => x.kind === 'pmOff').length,
+      sumTT: att.reduce((a, x) => a + x.tt, 0), avgTT: avg(full, x => x.tt),
+      hit3: full.filter(x => x.tt >= HIST_TT).length, hit25: full.filter(x => x.tt >= HIST_TT2).length,
+      avgCnt: avg(full, x => x.cnt), sumCnt: att.reduce((a, x) => a + x.cnt, 0), hitCnt: full.filter(x => x.cnt >= HIST_CALLS).length,
+      avgConn: avg(full.filter(x => x.calls != null), x => x.calls),
+      late: full.filter(x => x.first == null || x.first >= FIRST_MEET).length,
+      early: full.filter(x => x.tt < HIST_TT && x.last != null && x.last < EVENING).length,
+      evening: att.filter(x => x.ev > 0).length,
+    };
+    m.gapTT = m.avgTT == null ? null : Math.max(0, HIST_TT - m.avgTT);
+    m.gapCnt = m.avgCnt == null ? null : Math.max(0, HIST_CALLS - m.avgCnt);
+    m.rate3 = m.fullN ? m.hit3 / m.fullN : null;
+    m.rateLate = m.fullN ? m.late / m.fullN : null;
+    return m;
+  }
+  // 第一通時間分段 → 平均通時、達 3 小時比例（給組員看「早開始」的差別）
+  const HIST_BUCKETS = [[0, T(9, 30), '9:30 前'], [T(9, 30), T(10, 0), '9:30~10:00'], [T(10, 0), T(10, 30), '10:00~10:30'], [T(10, 30), 1e9, '10:30 以後']];
+  function histBuckets(days) {
+    const full = days.filter(x => x.kind === 'full' && x.first != null);
+    return HIST_BUCKETS.map(([a, b, label]) => {
+      const x = full.filter(d => d.first >= a && d.first < b);
+      return { label, n: x.length, avgTT: x.length ? x.reduce((s, d) => s + d.tt, 0) / x.length : null, rate3: x.length ? x.filter(d => d.tt >= HIST_TT).length / x.length : null };
+    });
+  }
+  // 全部記錄 → { months:[{ym,start,end,dates}], people:[名字], cell(name, ym|null), group(ym), buckets(name|null) }
+  function histAnalyze(records, opt = {}) {
+    const ex = new Set((opt.exclude || []).filter(Boolean));
+    const recs = records.filter(r => !ex.has(r.n)).map(histDay);
+    const allDates = [...new Set(recs.map(r => r.d))].sort((a, b) => a - b);
+    const months = WORK_MONTHS.map(m => ({ ...m, dates: allDates.filter(d => d >= m.start && d <= m.end) })).filter(m => m.dates.length);
+    const people = [...new Set(recs.map(r => r.n))];
+    const span = {}; recs.forEach(r => { const s = span[r.n] || (span[r.n] = [r.d, r.d]); if (r.d < s[0]) s[0] = r.d; if (r.d > s[1]) s[1] = r.d; });
+    const byKey = new Map(recs.map(r => [r.d + '|' + r.n, r]));
+    const daysOf = (n, dates) => {
+      const ds = dates.filter(d => d >= span[n][0] && d <= span[n][1]);
+      return { days: ds.map(d => byKey.get(d + '|' + n) || { d, n, tt: 0, kind: 'off', cnt: 0, ev: 0 }), expected: ds.length };
+    };
+    const monthDates = ym => ym ? (months.find(m => m.ym === ym) || { dates: [] }).dates : allDates;
+    const cell = (n, ym) => { const { days, expected } = daysOf(n, monthDates(ym)); return expected ? histMetrics(days, expected) : null; };
+    const group = ym => {
+      const all = people.map(n => daysOf(n, monthDates(ym))).filter(x => x.expected);
+      const m = histMetrics(all.flatMap(x => x.days), all.reduce((a, x) => a + x.expected, 0));
+      m.heads = all.length; return m;
+    };
+    const buckets = n => histBuckets(n ? daysOf(n, allDates).days : people.flatMap(p => daysOf(p, allDates).days));
+    return { months, people, cell, group, buckets, dates: allDates };
+  }
+
   // ---------- 金句：業務／電銷相關（外文為意譯，出處依網路上的業務名言集，有些說法不一） ----------
   const QUOTES = [
     ['被掛電話，只代表對方現在沒有需求，彼此都不浪費時間；只要客戶還在線上，就還有機會。', '台灣人壽電銷冠軍的心得'],
@@ -955,7 +1074,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
 
   const newContractTitle = (group, ext, d) => header('直效新契約送件紀錄表', group, ext, rocDot(d));
   G.Core = { quoteOf, newContractTitle, ymd, parseYmd, isWorkday, nextWorkday, prevWorkday, auditDay, rocDot, identifyFile, parseAudit, buildNewContract, PAGE_ROWS,
-    parseKpi, CALLS_MIN, callsMin, callsOf, callsEdited, callsFor, callsLow, talkRules, firstDeadline, talkTarget, buildTalkTime, hms, LEAVES, LEAVE_KEYS, MORNING, morningOf, isMorningFile, buildEmail, parsePerf, listenCall, morningReport, WORK_MONTHS, workMonthOf };
+    parseKpi, kpiDate, histRecords, histAnalyze, HIST_TT, HIST_TT2, HIST_CALLS, CALLS_MIN, callsMin, callsOf, callsEdited, callsFor, callsLow, talkRules, firstDeadline, talkTarget, buildTalkTime, hms, LEAVES, LEAVE_KEYS, MORNING, morningOf, isMorningFile, buildEmail, parsePerf, listenCall, morningReport, WORK_MONTHS, workMonthOf };
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
 <script>
@@ -1038,7 +1157,13 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       try {
         // 同類檔案再放一次就取代舊的
         if (id.type === 'audit') audit = { ...Core.parseAudit(await f.arrayBuffer()), fileDate: id.date, fileName: f.name };
-        if (id.type === 'kpi') kpi = { ...Core.parseKpi(await f.arrayBuffer()), fileDate: id.date, fileName: f.name, calls: {} };
+        if (id.type === 'kpi') {
+          const k = Core.parseKpi(await f.arrayBuffer());
+          if (k.dates.length > 1) { // 月檔（每人每天一列）→ ⑧ 歷史分析，不放進 ④
+            const n = histAdd(Core.histRecords(k.people));
+            notes.push(`<div class="ok">✔ ${esc(f.name)}：月檔，${Core.rocDot(Core.parseYmd(String(k.dates[0])))}~${Core.rocDot(Core.parseYmd(String(k.dates[k.dates.length - 1])))} 共 ${k.dates.length} 天、${n} 筆 → 放進 ⑧ 歷史分析</div>`);
+          } else kpi = { ...k, fileDate: id.date, fileName: f.name, calls: {} };
+        }
         if (id.type === 'perf') {
           if (!team().manager) throw new Error('請先在 ① 基本設定填「業務襄理」（你的名字），工具才知道要讀哪些組員');
           perf = { ...Core.parsePerf(await f.arrayBuffer(), team().manager), fileName: f.name };
@@ -1061,6 +1186,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     $('fileMsg').innerHTML = list + notes.join('');
     if (perf) $('rmPerf').addEventListener('click', () => { perf = null; notes = []; render(); });
     renderPerfMode();
+    renderHist();
     renderCall();
     renderAm();
     if (kpi) { $('rmKpi').addEventListener('click', () => { kpi = null; notes = []; render(); }); showKpi(); }
@@ -1325,6 +1451,19 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     return ok;
   }
 
+  // ⑤-2 進件表：照「貼到進件表.xls」的 12 欄，全部的列、順序照原檔；貼到 Excel 用（HTML 表格＋Tab 分隔文字）
+  const JJ_HEAD = ['受理編號', '送件方式', '行銷員姓名', '專案名稱', '客戶姓名', '專案代碼', '產品代碼', '產品名稱', '保額', '投保年齡', '主約保費', '業績FYP'];
+  const JJ_KEY = ['受理編號', '送件方式', '服務人員', '專案名稱', '客戶姓名', '專案代碼', '產品代碼', '產品名稱', '保額', '投保年齡', '主約保費', '業績FYP'];
+  $('cpJj').addEventListener('click', async () => {
+    if (!audit) return;
+    const head = $('jjHead').checked, rows = audit.cases.map(x => JJ_KEY.map(k => x[k] ?? ''));
+    // 受理編號、代碼用文字格式（mso-number-format），貼到 Excel 不會被轉成數字、掉前面的 0
+    const td = (v, i) => `<td style="${[0, 5, 6].includes(i) ? 'mso-number-format:\\@;' : ''}">${esc(v)}</td>`;
+    const html = '<table>' + (head ? '<tr>' + JJ_HEAD.map(h => `<td>${h}</td>`).join('') + '</tr>' : '') + rows.map(r => '<tr>' + r.map(td).join('') + '</tr>').join('') + '</table>';
+    const text = [...(head ? [JJ_HEAD] : []), ...rows].map(r => r.join('\t')).join('\r\n');
+    $('cpEmMsg').innerHTML = (await copyRich(html, text)) ? `<span class="ok">✔ 已複製 ${rows.length} 筆（12 欄${head ? '，含標題列' : ''}），到進件表點好位置按 Ctrl+V 貼上</span>` : '<span class="err">✖ 複製失敗</span>';
+  });
+
   // ⑤ 進件 EMAIL：照 進件EMAILC.xls，原檔全部的列、9 欄；畫面上的表格就是複製出去的樣子
   const EM_HEAD = ['受理編號', '送件方式', '行銷員姓名', '專案名稱', '產品名稱', '保額', '投保年齡', '主約保費', '業績FYP'];
   const EM_KEY = ['受理編號', '送件方式', '服務人員', '專案名稱', '產品名稱', '保額', '投保年齡', '主約保費', '業績FYP'];
@@ -1541,6 +1680,118 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const { html, text } = kpiTableHtml();
     $('dlKpiMsg').innerHTML = (await copyRich(html, text)) ? `<span class="ok">✔ 已複製 ${kpiPeople().length} 位組員的通時表格，到 Outlook 按 Ctrl+V 貼上</span>` : '<span class="err">✖ 複製失敗，請改用存檔</span>';
   });
+
+  // ⑧ 歷史分析：月檔的記錄存在瀏覽器（tmk.hist），同一天同一人再放一次就取代
+  let hist = (() => { try { return JSON.parse(store.get('hist', '[]')) || []; } catch (e) { return []; } })();
+  let histExcl = (() => { try { return JSON.parse(store.get('histExcl', '[]')) || []; } catch (e) { return []; } })();
+  function histAdd(recs) {
+    const m = new Map(hist.map(r => [r.d + '|' + r.n, r]));
+    recs.forEach(r => m.set(r.d + '|' + r.n, r));
+    hist = [...m.values()].sort((a, b) => a.d - b.d);
+    store.set('hist', JSON.stringify(hist));
+    return recs.length;
+  }
+  $('histClr').addEventListener('click', () => {
+    if (!confirm(`要清除這台電腦上的歷史資料（${hist.length} 筆）嗎？\n清除後要再把月檔拖進來才看得到。`)) return;
+    hist = []; store.set('hist', '[]'); renderHist();
+  });
+  const HM = s => s == null ? '—' : `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}`;
+  const PCT = v => v == null ? '—' : Math.round(v * 100) + '%';
+  const N0 = v => v == null ? '—' : Math.round(v);
+  // 欄位：[標題, 取值, 格式, 越大越好?(true/false/null＝不比), 達標判斷]
+  const HCOLS = [
+    ['應上班\n天數', m => m.expected, N0, null],
+    ['請假\n(全天)', m => m.leave, N0, null],
+    ['早上\n請假', m => m.amOff, N0, null],
+    ['下午\n請假', m => m.pmOff, N0, null],
+    ['平均\n每日通時', m => m.avgTT, HM, true, m => m.avgTT >= Core.HIST_TT],
+    ['距 3 小時\n每天還差', m => m.gapTT, v => v == null ? '—' : v === 0 ? '達標' : HM(v), null],
+    ['達 3 小時\n天數', m => m.hit3, N0, true],
+    ['達 2.5 小時\n天數', m => m.hit25, N0, true],
+    ['達 3 小時\n比例', m => m.rate3, PCT, true],
+    ['平均\n每日通數', m => m.avgCnt, N0, true, m => m.avgCnt >= Core.HIST_CALLS],
+    ['距 180 通\n每天還差', m => m.gapCnt, v => v == null ? '—' : v === 0 ? '達標' : N0(v), null],
+    ['平均\n接通筆數', m => m.avgConn, N0, true],
+    ['第一通晚\n(10:01後)天數', m => m.late, N0, false],
+    ['未達標\n18:00前掛', m => m.early, N0, false],
+    ['19:00後\n還有打(天)', m => m.evening, N0, true],
+    ['總通時', m => m.sumTT, HM, true],
+  ];
+  const hExclude = () => [team().manager, ...histExcl];
+  function histTable(rows, opt = {}) {
+    // rows: [{label, m, cls}]；opt.best：每欄標出最好的那一格（個人各月用）
+    const best = {};
+    if (opt.best) HCOLS.forEach(([, f, , up], i) => {
+      if (up == null) return;
+      const vals = rows.filter(r => !r.noBest && r.m && f(r.m) != null).map(r => f(r.m));
+      if (vals.length > 1) best[i] = up ? Math.max(...vals) : Math.min(...vals);
+    });
+    return `<tr><th>${opt.first || ''}</th>${HCOLS.map(c => `<th>${c[0]}</th>`).join('')}${opt.extraHead || ''}</tr>` + rows.map(r => `<tr class="${r.cls || ''}"><td style="text-align:left">${esc(r.label)}</td>` +
+      HCOLS.map(([, f, fmt, , good], i) => {
+        if (!r.m) return '<td>—</td>';
+        const v = f(r.m), cls = [best[i] != null && !r.noBest && v === best[i] ? 'best' : '', good && v != null && good(r.m) ? 'good' : ''].join(' ').trim();
+        return `<td class="${cls}">${fmt(v)}</td>`;
+      }).join('') + (r.extra || '') + '</tr>').join('');
+  }
+  function renderHist() {
+    if (!hist.length) { $('histOut').classList.add('hidden'); return; }
+    $('histOut').classList.remove('hidden');
+    const A = Core.histAnalyze(hist, { exclude: hExclude() });
+    const R = d => Core.rocDot(Core.parseYmd(String(d)));
+    $('histInfo').innerHTML = `已記住 <b>${hist.length}</b> 筆：` + A.months.map(m => `${m.ym}（${R(m.dates[0])}~${R(m.dates[m.dates.length - 1])}，${m.dates.length} 天）`).join('、') +
+      (A.months.length ? '' : '（不在工作月對照表的日期）');
+    // 全組各月
+    $('histGroup').innerHTML = histTable(A.months.map(m => { const g = A.group(m.ym); return { label: `${m.ym}（${g.heads} 人）`, m: g }; }), { first: '工作月' });
+    const bk = A.buckets(null);
+    $('histBucket').innerHTML = `<b>第一通幾點打，跟當天通時的關係（全組、全部月份、全天有上班的日子）：</b><table style="width:auto">` +
+      `<tr><th>第一通</th>${bk.map(b => `<th>${b.label}</th>`).join('')}</tr><tr><td>天數</td>${bk.map(b => `<td>${b.n}</td>`).join('')}</tr>` +
+      `<tr><td>平均通時</td>${bk.map(b => `<td>${HM(b.avgTT)}</td>`).join('')}</tr><tr><td>達 3 小時比例</td>${bk.map(b => `<td>${PCT(b.rate3)}</td>`).join('')}</tr></table>`;
+    // 某工每個人（含「不列入」的人，才能再勾回來；全組平均不算他們）
+    const selM = $('histMonth'), keepM = selM.value || store.get('histMonth', '');
+    selM.innerHTML = A.months.slice().reverse().map(m => `<option>${m.ym}</option>`).join('');
+    if ([...selM.options].some(o => o.value === keepM)) selM.value = keepM;
+    const all = Core.histAnalyze(hist, { exclude: [team().manager] });
+    const ym = selM.value;
+    const rowsM = all.people.map(n => ({ n, m: all.cell(n, ym) })).filter(x => x.m)
+      .sort((a, b) => histExcl.includes(a.n) - histExcl.includes(b.n) || (b.m.avgTT || 0) - (a.m.avgTT || 0))
+      .map(x => ({ label: x.n, m: x.m, cls: histExcl.includes(x.n) ? 'excl' : '', extra: `<td class="ctl"><input type="checkbox" data-hx="${esc(x.n)}" ${histExcl.includes(x.n) ? 'checked' : ''}></td>` }));
+    $('histMonthTable').innerHTML = ym ? histTable([...rowsM, { label: '全組平均', m: A.group(ym), cls: 'tot' }], { first: '組員（依平均通時排）', extraHead: '<th class="ctl">不列入</th>' }) : '';
+    $('histMonthTable').querySelectorAll('[data-hx]').forEach(el => el.addEventListener('change', () => {
+      histExcl = histExcl.filter(x => x !== el.dataset.hx); if (el.checked) histExcl.push(el.dataset.hx);
+      store.set('histExcl', JSON.stringify(histExcl)); renderHist();
+    }));
+    // 某人各月
+    const selP = $('histPerson'), keepP = selP.value || store.get('histPerson', '');
+    selP.innerHTML = A.people.map(n => `<option>${esc(n)}</option>`).join('');
+    if ([...selP.options].some(o => o.value === keepP)) selP.value = keepP;
+    const n = selP.value;
+    if (!n) { $('histPersonTable').innerHTML = ''; $('histPersonNote').innerHTML = ''; return; }
+    const rowsP = A.months.map(m => ({ label: m.ym, m: A.cell(n, m.ym) })).filter(r => r.m);
+    $('histPersonTable').innerHTML = histTable([...rowsP, { label: '全部月份', m: A.cell(n, null), noBest: true, cls: 'tot' }], { first: '工作月', best: true });
+    const pb = A.buckets(n).filter(b => b.n);
+    $('histPersonNote').innerHTML = '<span class="note">綠底粗體＝他自己最好的那個月；綠字＝有達標（通時 3 小時、通數 180）</span>' +
+      (pb.length ? `<div style="margin-top:6px"><b>${esc(n)} 第一通幾點打 → 當天平均通時：</b>${pb.map(b => `${b.label} ${HM(b.avgTT)}（${b.n} 天，達 3 小時 ${PCT(b.rate3)}）`).join('；')}</div>` : '');
+  }
+  $('histMonth').addEventListener('change', () => { store.set('histMonth', $('histMonth').value); renderHist(); });
+  $('histPerson').addEventListener('change', () => { store.set('histPerson', $('histPerson').value); renderHist(); });
+  setTimeout(renderHist, 0); // 打開工具時，之前記住的歷史資料直接顯示（等下面的函式都定義好）
+  // 複製：把畫面上的表格轉成每格都帶樣式的版本（Outlook 只認這種）；「不列入」欄不複製
+  function mailTable(t) {
+    const cell = 'border:1px solid #000;padding:2px 6px;font-family:新細明體,PMingLiU,serif;font-size:10pt;text-align:center;white-space:nowrap;';
+    const keep = c => !c.classList.contains('ctl');
+    const rows = [...t.rows].filter(tr => !tr.classList.contains('excl')).map(tr => '<tr>' + [...tr.cells].filter(keep).map(c => {
+      const st = cell + (c.tagName === 'TH' ? 'font-weight:bold;background:#eef1f5;' : '') + (c.classList.contains('best') ? 'background:#d9f2df;font-weight:bold;' : '') +
+        (c.classList.contains('good') ? 'color:#1a7f37;font-weight:bold;' : '') + (tr.classList.contains('tot') ? 'font-weight:bold;' : '');
+      return `<td style="${st}">${esc(c.textContent)}</td>`;
+    }).join('') + '</tr>').join('');
+    const text = [...t.rows].filter(tr => !tr.classList.contains('excl')).map(tr => [...tr.cells].filter(keep).map(c => c.textContent.replace(/\n/g, '')).join('\t')).join('\r\n');
+    return { html: `<table style="border-collapse:collapse">${rows}</table>`, text };
+  }
+  [['cpHistM', 'histMonthTable', 'cpHistMMsg', () => `${$('histMonth').value} 每個人`], ['cpHistP', 'histPersonTable', 'cpHistPMsg', () => `${$('histPerson').value} 各工作月`]].forEach(([b, t, msg, title]) => $(b).addEventListener('click', async () => {
+    const { html, text } = mailTable($(t));
+    const head = `<p style="font-family:新細明體,PMingLiU,serif;font-size:12pt;font-weight:bold;margin:4px 0">${esc(title())}</p>`;
+    $(msg).innerHTML = (await copyRich(head + html, title() + '\r\n' + text)) ? '<span class="ok">✔ 已複製，到 Outlook 按 Ctrl+V 貼上</span>' : '<span class="err">✖ 複製失敗</span>';
+  }));
 
   // 總複製：把有內容的區塊依序接起來，中間空一行
   $('cpAll').addEventListener('click', async () => {
