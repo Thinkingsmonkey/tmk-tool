@@ -81,7 +81,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.23 09:40</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.23 10:46</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -894,6 +894,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     };
   }
   // 一群日子 → 指標（平均類只看「全天有上班」的日子，才不會被半天假拉低）
+  const HIST_DAY_MIN = 0.3; // 當天有資料的人數不到該工作月最多那天的 3 成 → 不算上班日
   function histMetrics(days, expected) {
     const full = days.filter(x => x.kind === 'full'), att = days.filter(x => x.kind !== 'off');
     const avg = (arr, f) => arr.length ? arr.reduce((a, x) => a + f(x), 0) / arr.length : null;
@@ -927,7 +928,13 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   function histAnalyze(records, opt = {}) {
     const ex = new Set((opt.exclude || []).filter(Boolean));
     const recs = records.filter(r => !ex.has(r.n)).map(histDay);
-    const allDates = [...new Set(recs.map(r => r.d))].sort((a, b) => a - b);
+    // 上班日＝那天有足夠多人有資料；只有零星幾人來的（例如週六加班）不算上班日，不然其他人都會被算請假
+    const perDay = {}; recs.forEach(r => perDay[r.d] = (perDay[r.d] || 0) + 1);
+    const seen = Object.keys(perDay).map(Number).sort((a, b) => a - b);
+    const wmOf = d => WORK_MONTHS.find(m => d >= m.start && d <= m.end);
+    const maxIn = {}; seen.forEach(d => { const k = (wmOf(d) || {}).ym || ''; maxIn[k] = Math.max(maxIn[k] || 0, perDay[d]); });
+    const isWork = d => perDay[d] >= Math.ceil(maxIn[(wmOf(d) || {}).ym || ''] * HIST_DAY_MIN);
+    const allDates = seen.filter(isWork), extraDates = seen.filter(d => !isWork(d));
     const months = WORK_MONTHS.map(m => ({ ...m, dates: allDates.filter(d => d >= m.start && d <= m.end) })).filter(m => m.dates.length);
     const people = [...new Set(recs.map(r => r.n))];
     const span = {}; recs.forEach(r => { const s = span[r.n] || (span[r.n] = [r.d, r.d]); if (r.d < s[0]) s[0] = r.d; if (r.d > s[1]) s[1] = r.d; });
@@ -944,7 +951,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       m.heads = all.length; return m;
     };
     const buckets = n => histBuckets(n ? daysOf(n, allDates).days : people.flatMap(p => daysOf(p, allDates).days));
-    return { months, people, cell, group, buckets, dates: allDates };
+    return { months, people, cell, group, buckets, dates: allDates, extraDates };
   }
 
   // ---------- 金句：業務／電銷相關（外文為意譯，出處依網路上的業務名言集，有些說法不一） ----------
@@ -1739,7 +1746,8 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const A = Core.histAnalyze(hist, { exclude: hExclude() });
     const R = d => Core.rocDot(Core.parseYmd(String(d)));
     $('histInfo').innerHTML = `已記住 <b>${hist.length}</b> 筆：` + A.months.map(m => `${m.ym}（${R(m.dates[0])}~${R(m.dates[m.dates.length - 1])}，${m.dates.length} 天）`).join('、') +
-      (A.months.length ? '' : '（不在工作月對照表的日期）');
+      (A.months.length ? '' : '（不在工作月對照表的日期）') +
+      (A.extraDates.length ? `<br><span class="note">只有少數人有資料、不算上班日（例如週六加班）：${A.extraDates.map(R).join('、')}</span>` : '');
     // 全組各月
     $('histGroup').innerHTML = histTable(A.months.map(m => { const g = A.group(m.ym); return { label: `${m.ym}（${g.heads} 人）`, m: g }; }), { first: '工作月' });
     const bk = A.buckets(null);
