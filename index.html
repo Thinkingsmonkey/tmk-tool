@@ -81,7 +81,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.24 08:46</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.24 12:53</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -1474,8 +1474,10 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     if (!audit) return;
     const head = $('jjHead').checked, rows = audit.cases.map(x => JJ_KEY.map(k => x[k] ?? ''));
     // 受理編號、代碼用文字格式（mso-number-format），貼到 Excel 不會被轉成數字、掉前面的 0
-    const td = (v, i) => `<td style="${[0, 5, 6].includes(i) ? 'mso-number-format:\\@;' : ''}">${esc(v)}</td>`;
-    const html = '<table>' + (head ? '<tr>' + JJ_HEAD.map(h => `<td>${h}</td>`).join('') + '</tr>' : '') + rows.map(r => '<tr>' + r.map(td).join('') + '</tr>').join('') + '</table>';
+    // 格式照進件表原本的列：細框線、新細明體 10pt
+    const cell = 'border:.5pt solid windowtext;font-family:新細明體,PMingLiU,serif;font-size:10pt;vertical-align:middle;';
+    const td = (v, i) => `<td style="${cell}${[0, 5, 6].includes(i) ? 'mso-number-format:\\@;' : ''}">${esc(v)}</td>`;
+    const html = '<table style="border-collapse:collapse">' + (head ? '<tr>' + JJ_HEAD.map(h => `<td style="${cell}font-weight:bold;text-align:center">${h}</td>`).join('') + '</tr>' : '') + rows.map(r => '<tr>' + r.map(td).join('') + '</tr>').join('') + '</table>';
     const text = [...(head ? [JJ_HEAD] : []), ...rows].map(r => r.join('\t')).join('\r\n');
     $('cpJjMsg').innerHTML = (await copyRich(html, text)) ? `<span class="ok">✔ 已複製 ${rows.length} 筆（12 欄${head ? '，含標題列' : ''}），到進件表點好位置按 Ctrl+V 貼上</span>` : '<span class="err">✖ 複製失敗</span>';
   });
