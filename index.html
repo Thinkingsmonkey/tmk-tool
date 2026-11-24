@@ -81,7 +81,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.24 08:42</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.24 08:46</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -136,12 +136,20 @@
     <div class="note">從同一份「壽險促成審核作業」挑 9 欄，全部的列、順序照原檔（不受 ③ 打勾移除影響）。按「複製表格」後，到 Outlook 信件裡按 Ctrl+V 貼上。</div>
     <div class="row" style="margin-top:12px">
       <button id="cpEm">複製表格（貼到 Outlook）</button>
-      <button id="cpJj" class="light">複製給進件表（貼到 Excel，12 欄）</button>
-      <label class="note"><input type="checkbox" id="jjHead"> 含標題列</label>
       <span id="cpEmMsg" class="note"></span>
     </div>
     <div id="emWarn" class="msg"></div>
     <div id="emTable" style="overflow-x:auto;margin-top:8px"></div>
+  </section>
+
+  <section id="jjOut" class="card hidden">
+    <h2>⑨ 貼到進件表（Excel，12 欄）</h2>
+    <div class="note">跟 ⑤ 用同一份「壽險促成審核作業」，但欄位不同（照「貼到進件表.xls」12 欄），只複製資料、不含標題。到進件表點好位置按 Ctrl+V 貼上。</div>
+    <div class="row" style="margin-top:12px">
+      <button id="cpJj">複製資料（貼到 Excel）</button>
+      <label class="note"><input type="checkbox" id="jjHead"> 含標題列</label>
+      <span id="cpJjMsg" class="note"></span>
+    </div>
   </section>
 
   <section id="amOut" class="card hidden">
@@ -1204,6 +1212,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     } else {
       $('out').classList.add('hidden');
       $('emOut').classList.add('hidden');
+      $('jjOut').classList.add('hidden');
     }
   }
 
@@ -1458,7 +1467,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     return ok;
   }
 
-  // ⑤-2 進件表：照「貼到進件表.xls」的 12 欄，全部的列、順序照原檔；貼到 Excel 用（HTML 表格＋Tab 分隔文字）
+  // ⑨ 進件表：照「貼到進件表.xls」的 12 欄，全部的列、順序照原檔；貼到 Excel 用（HTML 表格＋Tab 分隔文字）
   const JJ_HEAD = ['受理編號', '送件方式', '行銷員姓名', '專案名稱', '客戶姓名', '專案代碼', '產品代碼', '產品名稱', '保額', '投保年齡', '主約保費', '業績FYP'];
   const JJ_KEY = ['受理編號', '送件方式', '服務人員', '專案名稱', '客戶姓名', '專案代碼', '產品代碼', '產品名稱', '保額', '投保年齡', '主約保費', '業績FYP'];
   $('cpJj').addEventListener('click', async () => {
@@ -1468,7 +1477,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const td = (v, i) => `<td style="${[0, 5, 6].includes(i) ? 'mso-number-format:\\@;' : ''}">${esc(v)}</td>`;
     const html = '<table>' + (head ? '<tr>' + JJ_HEAD.map(h => `<td>${h}</td>`).join('') + '</tr>' : '') + rows.map(r => '<tr>' + r.map(td).join('') + '</tr>').join('') + '</table>';
     const text = [...(head ? [JJ_HEAD] : []), ...rows].map(r => r.join('\t')).join('\r\n');
-    $('cpEmMsg').innerHTML = (await copyRich(html, text)) ? `<span class="ok">✔ 已複製 ${rows.length} 筆（12 欄${head ? '，含標題列' : ''}），到進件表點好位置按 Ctrl+V 貼上</span>` : '<span class="err">✖ 複製失敗</span>';
+    $('cpJjMsg').innerHTML = (await copyRich(html, text)) ? `<span class="ok">✔ 已複製 ${rows.length} 筆（12 欄${head ? '，含標題列' : ''}），到進件表點好位置按 Ctrl+V 貼上</span>` : '<span class="err">✖ 複製失敗</span>';
   });
 
   // ⑤ 進件 EMAIL：照 進件EMAILC.xls，原檔全部的列、9 欄；畫面上的表格就是複製出去的樣子
@@ -1483,7 +1492,8 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   }
   function renderEmail() {
     $('emOut').classList.remove('hidden');
-    $('cpEmMsg').textContent = '';
+    $('jjOut').classList.remove('hidden');
+    $('cpEmMsg').textContent = ''; $('cpJjMsg').textContent = '';
     $('emWarn').innerHTML = `<div>共 <b>${audit.cases.length}</b> 筆</div>`;
     $('emTable').innerHTML = emailTableHtml();
   }
