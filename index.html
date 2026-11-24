@@ -81,7 +81,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.23 10:46</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.24 08:42</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -258,7 +258,7 @@
     <h2>總複製</h2>
     <div class="row">
       <button id="cpAll">總複製（貼到 Outlook）</button>
-      <span class="note">順序：早上報表 → 聽 CALL 人員 → 進件 EMAIL → 通時表格，中間空一行；沒放檔案的區塊會跳過</span>
+      <span class="note">順序：聽 CALL 人員 → 早上報表 → 進件 EMAIL → 通時表格，中間空一行；沒放檔案的區塊會跳過</span>
     </div>
     <div id="cpAllMsg" class="msg"></div>
   </section>
@@ -1804,17 +1804,17 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   // 總複製：把有內容的區塊依序接起來，中間空一行
   $('cpAll').addEventListener('click', async () => {
     const parts = [], skip = [];
+    const callReady = audit && perf && $('callOut').dataset.text;
+    if (callReady) {
+      const t = $('callOut').dataset.text;
+      parts.push({ name: '聽 CALL 人員', html: `<span style="background:${CALL_BG};font-family:新細明體,PMingLiU,serif">${esc(t)}</span>`, text: t });
+    } else skip.push('聽 CALL 人員（要有業績報表和審核作業）');
     if (perf) {
       try {
         const html = amGroupHtml(amData(), true), box = document.createElement('div'); box.innerHTML = html;
         parts.push({ name: '早上報表', html, text: box.innerText });
       } catch (e) { skip.push('早上報表（' + e.message + '）'); }
     } else skip.push('早上報表（要有業績報表）');
-    const callReady = audit && perf && $('callOut').dataset.text;
-    if (callReady) {
-      const t = $('callOut').dataset.text;
-      parts.push({ name: '聽 CALL 人員', html: `<span style="background:${CALL_BG};font-family:新細明體,PMingLiU,serif">${esc(t)}</span>`, text: t });
-    } else skip.push('聽 CALL 人員（要有業績報表和審核作業）');
     if (audit) parts.push({ name: '進件 EMAIL', html: emailTableHtml(), text: [EM_HEAD.join('\t'), ...audit.cases.map(x => EM_KEY.map(k => x[k] ?? '').join('\t'))].join('\r\n') });
     else skip.push('進件 EMAIL（要有審核作業）');
     if (kpi) { const k = kpiTableHtml(); parts.push({ name: '通時表格', html: k.html, text: k.text }); }
