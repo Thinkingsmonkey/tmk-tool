@@ -81,7 +81,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.26 12:10</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.26 12:26</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -1328,7 +1328,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       // 核實目標、個人核實率／契撤率：只在畫面上（不複製）；改過的藍色粗體
       const ov = (k, v, edited, tip) => `<input type="number" class="lvin${edited ? ' edited' : ''}" data-ov="${k}" data-nm="${esc(x.name)}" value="${v}" title="${tip}">`;
       const pctV = v => Math.round(v * 1000) / 10;
-      const extra = forMail ? '' : td(ov('goals', x.goal, x.goalEdited, x.goalEdited ? `你填的核實目標（職級 ${x.level}）` : '沒填＝用職級')) +
+      const extra = forMail ? td(x.goal) : td(ov('goals', x.goal, x.goalEdited, x.goalEdited ? `你填的核實目標（職級 ${x.level}）` : '沒填＝用職級')) +
         td(ov('hsRates', pctV(x.hsR), x.hsEdited, x.hsEdited ? '他自己的核實率' : '沒改＝用全組的核實率')) +
         td(ov('cxRates', pctV(x.cxR), x.cxEdited, x.cxEdited ? '他自己的契撤率' : '沒改＝用全組的契撤率'));
       if (x.excluded) return `<tr class="excl">` + td(esc(x.name), 'text-align:left') + `<td colspan="${forMail ? 10 : 13}" class="note">不列入（不算人數、不進提醒總表、不複製）</td><td class="ctl"><input type="checkbox" data-ax="${esc(x.name)}" checked></td></tr>`;
@@ -1341,7 +1341,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const th = (h, color, span = '') => `<th ${span} style="${forMail ? cell + 'font-weight:bold;text-align:center;' : ''}background:${color};">${h}</th>`;
     const NB = '#eef1f5';
     const head1 = th('組員', NB, 'rowspan="2"') + th('職級', NB, 'rowspan="2"') +
-      (forMail ? '' : th('核實目標', '#fde9d9', 'rowspan="2"') + th('核實率\n(%)', '#fde9d9', 'rowspan="2"') + th('契撤率\n(%)', '#fde9d9', 'rowspan="2"')) + th('舉績', GJ, 'colspan="6"') + th('核實', GH, 'colspan="2"') + th('昨日', NB, 'rowspan="2"') + (forMail ? '' : th('不列入', NB, 'rowspan="2"'));
+      (forMail ? th('核實目標', NB, 'rowspan="2"') : th('核實目標', '#fde9d9', 'rowspan="2"') + th('核實率\n(%)', '#fde9d9', 'rowspan="2"') + th('契撤率\n(%)', '#fde9d9', 'rowspan="2"')) + th('舉績', GJ, 'colspan="6"') + th('核實', GH, 'colspan="2"') + th('昨日', NB, 'rowspan="2"') + (forMail ? '' : th('不列入', NB, 'rowspan="2"'));
     const head2 = ['舉績目標', '舉績', '達成率', '還差', '應有進度\n(舉績)', '每日需'].map(h => th(forMail ? h.replace('\n', '') : h, GJ)).join('') +
       ['淨核實', '應有進度\n(核實)'].map(h => th(forMail ? h.replace('\n', '') : h, GH)).join('');
     const P = forMail ? `<p style="margin:4px 0;${F}">` : '<div class="amday">';
@@ -1362,7 +1362,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const hsPct = $('hsRate').value, cxPct = $('cxRate').value;
     $('amRule').innerHTML = `<ul>` +
       `<li><b>舉績目標</b>＝核實目標 ÷（核實率 ×（1 − 契撤率））。全組用核實率 ${hsPct}%、契撤率 ${cxPct}% → 核實目標 ÷ ${r.factor.toFixed(3)}；例：50P 要舉績 ${fmtP(50 / r.factor)}P、120P 要舉績 ${fmtP(120 / r.factor)}P</li>` +
-      `<li><b>核實目標</b>＝你和組員講好的個人目標，沒填就用職級；<b>核實率、契撤率</b>可以單獨改某個人（例如核實好、契撤少的人），沒改就用全組的。這三欄改過的會變藍色粗體、會記住，<b>只在畫面上，不會複製出去</b>；清空或改回跟預設一樣就恢復</li>` +
+      `<li><b>核實目標</b>＝你和組員講好的個人目標，沒填就用職級；<b>核實率、契撤率</b>可以單獨改某個人（例如核實好、契撤少的人），沒改就用全組的。這三欄改過的會變藍色粗體、會記住，<b>複製出去只有核實目標，核實率、契撤率只在畫面上</b>；清空或改回跟預設一樣就恢復</li>` +
       (r.rows.some(x => x.hsEdited || x.cxEdited) ? `<li>有個別比例的人：${r.rows.filter(x => x.hsEdited || x.cxEdited).map(x => `${esc(x.name)} 核實率 ${Math.round(x.hsR * 1000) / 10}%、契撤率 ${Math.round(x.cxR * 1000) / 10}% → 核實目標 ÷ ${x.factor.toFixed(3)}`).join('；')}</li>` : '') +
       `<li><b>舉績</b>＝業績報表的累計＋審核作業昨天剛進的件（只算舉績）</li>` +
       `<li><b>應有進度</b>＝目標 × 已過上班日 ÷ 本工上班日（現在是 ${r.passed} ÷ ${r.total}）；淨核實的應有進度＝職級 × 同一個比例（淨核實職達是公司職級，不看核實目標）</li>` +
