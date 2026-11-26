@@ -81,7 +81,7 @@
 <body>
 <main>
   <h1>電銷報表工具</h1>
-  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.24 12:53</span></p>
+  <p class="sub">不用網路。把公司的 Excel 拖進來，自動產出報表。　<span style="font-size:15px">版本 115.11.26 12:10</span></p>
 
   <section class="card">
     <h2>① 基本設定（會自動記住）</h2>
@@ -161,8 +161,8 @@
         <div id="amRule"></div>
       </details>
       <div class="row">
-        <label>核實率 <input id="hsRate" type="number" min="1" max="100" step="1" style="width:80px;font:inherit"> %</label>
-        <label>契撤率 <input id="cxRate" type="number" min="0" max="99" step="1" style="width:80px;font:inherit"> %</label>
+        <label>全組核實率 <input id="hsRate" type="number" min="1" max="100" step="1" style="width:80px;font:inherit"> %</label>
+        <label>全組契撤率 <input id="cxRate" type="number" min="0" max="99" step="1" style="width:80px;font:inherit"> %</label>
         <span id="amFormula" class="note"></span>
         <button class="light" id="clrLv">職級全部恢復成業績報表的</button>
       </div>
@@ -994,7 +994,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   const quoteOf = (d, skip = 0) => { const [text, who] = QUOTES[(Math.abs(Math.floor(parseYmd(String(d)).getTime() / 86400e3)) + skip) % QUOTES.length]; return { text, who }; };
 
   // ---------- 早上報表：舉績目標進度 ----------
-  // 目標（舉績）＝ 職級 ÷ (核實率 × (1 − 契撤率))：要讓月底淨核實到職級，舉績要做到多少
+  // 目標（舉績）＝ 核實目標 ÷ (核實率 × (1 − 契撤率))；核實目標、核實率、契撤率每個人可以手動改，空白＝職級、全組的比例
   // 應有進度＝目標 × 已過上班日 ÷ 本工上班日；舉績含「昨天」審核作業剛進的件（只算舉績）
   function morningReport(perf, audit, opt) {
     const cal = opt.cal, hsRate = opt.hsRate ?? 0.7, cxRate = opt.cxRate ?? 0.25, warn = [];
@@ -1029,7 +1029,14 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     const rows = perf.people.map(p => {
       // 職級可以在工具裡手動改（業績報表更新比較慢）；有改就用改過的
       const ov = opt.levels && opt.levels[p.name], level = ov != null && ov !== '' && isFinite(+ov) ? +ov : p.level;
-      const target = level / factor;
+      // 個人核實目標（襄理和組員討論後手填）：空白＝用職級；只影響舉績目標，淨核實職達還是看職級
+      const num = (o, k) => { const v = o && o[k]; return v != null && v !== '' && isFinite(+v) ? +v : null; };
+      const goalOv = num(opt.goals, p.name), goal = goalOv ?? level;
+      // 個人核實率、契撤率（%）：空白＝用全組的
+      const hsOv = num(opt.hsRates, p.name), cxOv = num(opt.cxRates, p.name);
+      const hsR = hsOv != null ? hsOv / 100 : hsRate, cxR = cxOv != null ? cxOv / 100 : cxRate;
+      const pFactor = hsR * (1 - cxR);
+      const target = pFactor > 0 ? goal / pFactor : 0;
       const excluded = !!(opt.excluded && opt.excluded.includes(p.name));
       const hsList = (perf.hsCases || []).filter(c => c.who === p.name);
       const pending = hasSend ? sendMonth.filter(c => c.who === p.name && !hsIds.has(c.id) && c.date !== String(D)) : null; // 昨天剛進的件另外說明
@@ -1041,7 +1048,8 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       const jjOk = jj >= jjNeed - 1e-9, netOk = net >= netNeed - 1e-9;
       const light = !jjOk ? 'red' : !netOk ? 'yellow' : 'green';
       return {
-        name: p.name, level, levelOrig: p.level, levelEdited: level !== p.level, target: r1(target), jj: r1(jj), jjNeed: r1(jjNeed), net: r1(net), netNeed: r1(netNeed),
+        name: p.name, level, levelOrig: p.level, levelEdited: level !== p.level, target: r1(target),
+        goal, goalEdited: goalOv != null, hsR, cxR, hsEdited: hsOv != null, cxEdited: cxOv != null, factor: pFactor, jj: r1(jj), jjNeed: r1(jjNeed), net: r1(net), netNeed: r1(netNeed),
         hs: r1(p.hsP), cx: r1(p.cxP), jjN: addAudit ? p.jjN - dayDN + y.n : p.jjN, yN: y.n, yP: r1(y.p),
         jjRate: target ? jj / target : 0, netRate: level ? net / level : 0,
         gap: r1(Math.max(0, target - jj)), perDay: remain ? r1(Math.max(0, target - jj) / remain) : null,
@@ -1281,6 +1289,9 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   // 手動改的職級：記住到你自己改回來（清空＝用業績報表的職級）
   let lvTimer = null;
   let amLevels = (() => { try { return JSON.parse(store.get('amLevels', '')) || {}; } catch (e) { return {}; } })();
+  // 每個人的核實目標、核實率、契撤率（只在畫面上、不複製）：記住到你自己清掉；空白＝職級／全組的比例
+  const AM_OV = { goals: 'amGoals', hsRates: 'amHs', cxRates: 'amCx' };
+  const amOv = {}; Object.entries(AM_OV).forEach(([k, key]) => { try { amOv[k] = JSON.parse(store.get(key, '')) || {}; } catch (e) { amOv[k] = {}; } });
   const fmtP = v => (v == null ? '—' : (Math.round(v * 10) / 10).toFixed(1));
   const pct = v => Math.round(v * 100) + '%';
   // 1.5 → 一天半、0.5 → 半天、2.5 → 2 天半
@@ -1290,7 +1301,7 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
   document.querySelectorAll('[data-align]').forEach(b => b.addEventListener('click', () => { store.set('amAlign', b.dataset.align); renderAm(); }));
   const quoteSkips = () => { try { return JSON.parse(store.get('quoteSkip', '')) || {}; } catch (e) { return {}; } };
   function amData() {
-    const r = Core.morningReport(perf, audit, { cal: CAL, excluded: amExcl, levels: amLevels, hsRate: Number($('hsRate').value) / 100, cxRate: Number($('cxRate').value) / 100, perfMode: perfMode() });
+    const r = Core.morningReport(perf, audit, { cal: CAL, excluded: amExcl, levels: amLevels, goals: amOv.goals, hsRates: amOv.hsRates, cxRates: amOv.cxRates, hsRate: Number($('hsRate').value) / 100, cxRate: Number($('cxRate').value) / 100, perfMode: perfMode() });
     r.quote = Core.quoteOf(r.today, quoteSkips()[r.today] || 0); // 畫面和複製都用同一句
     return r;
   }
@@ -1314,8 +1325,14 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
       // 數字格的對齊照「數字對齊」按鈕（畫面和複製到 Outlook 一樣）；姓名固定靠左
       const td = (v, extra = `text-align:${amAlign()}`) => `<td style="${st}${extra}">${v}</td>`;
       const lv = forMail ? x.level : `<input type="number" class="lvin${x.levelEdited ? ' edited' : ''}" data-lv="${esc(x.name)}" value="${x.level}" title="業績報表上是 ${x.levelOrig}${x.levelEdited ? '，你改成 ' + x.level : ''}">`;
-      if (x.excluded) return `<tr class="excl">` + td(esc(x.name), 'text-align:left') + `<td colspan="10" class="note">不列入（不算人數、不進提醒總表、不複製）</td><td class="ctl"><input type="checkbox" data-ax="${esc(x.name)}" checked></td></tr>`;
-      return `<tr class="lt-${x.light}">` + td(esc(x.name), 'text-align:left') + td(lv) +
+      // 核實目標、個人核實率／契撤率：只在畫面上（不複製）；改過的藍色粗體
+      const ov = (k, v, edited, tip) => `<input type="number" class="lvin${edited ? ' edited' : ''}" data-ov="${k}" data-nm="${esc(x.name)}" value="${v}" title="${tip}">`;
+      const pctV = v => Math.round(v * 1000) / 10;
+      const extra = forMail ? '' : td(ov('goals', x.goal, x.goalEdited, x.goalEdited ? `你填的核實目標（職級 ${x.level}）` : '沒填＝用職級')) +
+        td(ov('hsRates', pctV(x.hsR), x.hsEdited, x.hsEdited ? '他自己的核實率' : '沒改＝用全組的核實率')) +
+        td(ov('cxRates', pctV(x.cxR), x.cxEdited, x.cxEdited ? '他自己的契撤率' : '沒改＝用全組的契撤率'));
+      if (x.excluded) return `<tr class="excl">` + td(esc(x.name), 'text-align:left') + `<td colspan="${forMail ? 10 : 13}" class="note">不列入（不算人數、不進提醒總表、不複製）</td><td class="ctl"><input type="checkbox" data-ax="${esc(x.name)}" checked></td></tr>`;
+      return `<tr class="lt-${x.light}">` + td(esc(x.name), 'text-align:left') + td(lv) + extra +
         td(fmtP(x.target)) + td(`<b>${fmtP(x.jj)}</b>`) + td(pct(x.jjRate)) + td(x.gap ? fmtP(x.gap) : '達標') + td(fmtP(x.jjNeed)) + td(x.perDay == null ? '—' : x.gap ? fmtP(x.perDay) : '—') +
         td(`<b>${fmtP(x.net)}</b>`) + td(fmtP(x.netNeed)) +
         td(x.yN ? `${x.yN}件 ${fmtP(x.yP)}` : '') +
@@ -1323,7 +1340,8 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     }).join('');
     const th = (h, color, span = '') => `<th ${span} style="${forMail ? cell + 'font-weight:bold;text-align:center;' : ''}background:${color};">${h}</th>`;
     const NB = '#eef1f5';
-    const head1 = th('組員', NB, 'rowspan="2"') + th('職級', NB, 'rowspan="2"') + th('舉績', GJ, 'colspan="6"') + th('核實', GH, 'colspan="2"') + th('昨日', NB, 'rowspan="2"') + (forMail ? '' : th('不列入', NB, 'rowspan="2"'));
+    const head1 = th('組員', NB, 'rowspan="2"') + th('職級', NB, 'rowspan="2"') +
+      (forMail ? '' : th('核實目標', '#fde9d9', 'rowspan="2"') + th('核實率\n(%)', '#fde9d9', 'rowspan="2"') + th('契撤率\n(%)', '#fde9d9', 'rowspan="2"')) + th('舉績', GJ, 'colspan="6"') + th('核實', GH, 'colspan="2"') + th('昨日', NB, 'rowspan="2"') + (forMail ? '' : th('不列入', NB, 'rowspan="2"'));
     const head2 = ['舉績目標', '舉績', '達成率', '還差', '應有進度\n(舉績)', '每日需'].map(h => th(forMail ? h.replace('\n', '') : h, GJ)).join('') +
       ['淨核實', '應有進度\n(核實)'].map(h => th(forMail ? h.replace('\n', '') : h, GH)).join('');
     const P = forMail ? `<p style="margin:4px 0;${F}">` : '<div class="amday">';
@@ -1340,12 +1358,14 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
     $('amOut').classList.remove('hidden'); $('amBody').classList.remove('hidden');
     $('amNeed').textContent = audit ? '' : 'ℹ 沒有放審核作業：昨天剛進的件不會算進舉績';
     let r; try { r = amData(); } catch (e) { $('amWarn').innerHTML = `<div class="err">✖ ${esc(e.message)}</div>`; $('amGroup').innerHTML = ''; $('amRemind').innerHTML = ''; return; }
-    $('amFormula').textContent = `→ 舉績目標＝職級 ÷ ${(r.factor).toFixed(3)}（例：50P 要舉績 ${fmtP(50 / r.factor)}P）`;
+    $('amFormula').textContent = `→ 舉績目標＝核實目標（沒填＝職級）÷ ${(r.factor).toFixed(3)}（例：50P 要舉績 ${fmtP(50 / r.factor)}P）`;
     const hsPct = $('hsRate').value, cxPct = $('cxRate').value;
     $('amRule').innerHTML = `<ul>` +
-      `<li><b>舉績目標</b>＝職級 ÷（核實率 ${hsPct}% ×（1 − 契撤率 ${cxPct}%））＝職級 ÷ ${r.factor.toFixed(3)}；例：50P 要舉績 ${fmtP(50 / r.factor)}P、120P 要舉績 ${fmtP(120 / r.factor)}P</li>` +
+      `<li><b>舉績目標</b>＝核實目標 ÷（核實率 ×（1 − 契撤率））。全組用核實率 ${hsPct}%、契撤率 ${cxPct}% → 核實目標 ÷ ${r.factor.toFixed(3)}；例：50P 要舉績 ${fmtP(50 / r.factor)}P、120P 要舉績 ${fmtP(120 / r.factor)}P</li>` +
+      `<li><b>核實目標</b>＝你和組員講好的個人目標，沒填就用職級；<b>核實率、契撤率</b>可以單獨改某個人（例如核實好、契撤少的人），沒改就用全組的。這三欄改過的會變藍色粗體、會記住，<b>只在畫面上，不會複製出去</b>；清空或改回跟預設一樣就恢復</li>` +
+      (r.rows.some(x => x.hsEdited || x.cxEdited) ? `<li>有個別比例的人：${r.rows.filter(x => x.hsEdited || x.cxEdited).map(x => `${esc(x.name)} 核實率 ${Math.round(x.hsR * 1000) / 10}%、契撤率 ${Math.round(x.cxR * 1000) / 10}% → 核實目標 ÷ ${x.factor.toFixed(3)}`).join('；')}</li>` : '') +
       `<li><b>舉績</b>＝業績報表的累計＋審核作業昨天剛進的件（只算舉績）</li>` +
-      `<li><b>應有進度</b>＝目標 × 已過上班日 ÷ 本工上班日（現在是 ${r.passed} ÷ ${r.total}）；淨核實的應有進度＝職級 × 同一個比例</li>` +
+      `<li><b>應有進度</b>＝目標 × 已過上班日 ÷ 本工上班日（現在是 ${r.passed} ÷ ${r.total}）；淨核實的應有進度＝職級 × 同一個比例（淨核實職達是公司職級，不看核實目標）</li>` +
       `<li><b>還差</b>＝舉績目標 − 舉績；<b>每日需</b>＝還差 ÷ 剩下 ${r.remain} 天</li>` +
       `<li><b>舉績職達</b>＝舉績做到舉績目標；<b>淨核實職達</b>＝淨核實做到職級</li>` +
       `<li>🟢 舉績、淨核實都到應有進度：不用處理</li>` +
@@ -1375,6 +1395,24 @@ window.TEMPLATE_B64="UEsDBBQAAAAIAKskbF1z+854wwEAAA0GAAAaAAAAeGwvX3JlbHMvd29ya2J
         const focused = document.activeElement === el;
         renderAm();
         if (focused) { const again = $('amGroup').querySelector(`[data-lv="${CSS.escape(nm)}"]`); if (again) { again.focus(); again.scrollIntoView({ block: 'nearest' }); } }
+      };
+      el.addEventListener('input', () => { clearTimeout(lvTimer); lvTimer = setTimeout(apply, 600); });
+      el.addEventListener('change', apply);
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') apply(); });
+    });
+    $('amGroup').querySelectorAll('[data-ov]').forEach(el => {
+      const k = el.dataset.ov, nm = el.dataset.nm;
+      const apply = () => {
+        clearTimeout(lvTimer);
+        const row = r.rows.find(x => x.name === nm); if (!row) return;
+        const def = k === 'goals' ? row.level : Number($(k === 'hsRates' ? 'hsRate' : 'cxRate').value);
+        const was = amOv[k][nm];
+        if (el.value === '' || isNaN(+el.value) || +el.value === def) delete amOv[k][nm]; else amOv[k][nm] = +el.value;
+        if (was === amOv[k][nm]) return;
+        store.set(AM_OV[k], JSON.stringify(amOv[k]));
+        const focused = document.activeElement === el;
+        renderAm();
+        if (focused) { const again = $('amGroup').querySelector(`[data-ov="${k}"][data-nm="${CSS.escape(nm)}"]`); if (again) { again.focus(); again.scrollIntoView({ block: 'nearest' }); } }
       };
       el.addEventListener('input', () => { clearTimeout(lvTimer); lvTimer = setTimeout(apply, 600); });
       el.addEventListener('change', apply);
